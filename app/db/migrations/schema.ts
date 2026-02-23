@@ -109,6 +109,7 @@ export const planningSessions = pgTable("planning_sessions", {
 	updatedAt: timestamp("updated_at", { mode: 'string' }).defaultNow().notNull(),
 	title: text().default('Trip Planning'),
 	finalizedAt: timestamp("finalized_at", { mode: 'string' }),
+	finalizedItinerary: jsonb("finalized_itinerary"),
 }, (table) => [
 	index("idx_planning_sessions_status").using("btree", table.status.asc().nullsLast().op("text_ops")),
 	index("idx_planning_sessions_user").using("btree", table.userId.asc().nullsLast().op("text_ops")),
