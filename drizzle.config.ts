@@ -12,4 +12,5 @@ export default {
     port: 5432,
     ssl: 'require',
   },
+  tablesFilter: ['!spatial_ref_sys', '!__drizzle_migrations'],
 } satisfies Config;
