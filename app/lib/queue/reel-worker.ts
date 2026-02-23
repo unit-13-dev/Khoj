@@ -15,6 +15,21 @@ const worker = new Worker(
 
         const metadata= await getReelData(url);
 
+        // Download and convert thumbnail to base64
+        let thumbnailBase64 = null;
+        if (metadata.thumbnail) {
+            try {
+                const imgResponse = await fetch(metadata.thumbnail);
+                if (imgResponse.ok) {
+                    const buffer = await imgResponse.arrayBuffer();
+                    thumbnailBase64 = `data:image/jpeg;base64,${Buffer.from(buffer).toString('base64')}`;
+                    console.log('Thumbnail downloaded and converted to base64');
+                }
+            } catch (err) {
+                console.error('Failed to download thumbnail:', err);
+            }
+        }
+
         const reelRow={
               shortCode:   metadata.shortCode,
               url:         metadata.url,
@@ -22,7 +37,7 @@ const worker = new Worker(
               comments:    metadata.comments,
               hashtags:    metadata.hashtags,
               transcript:  metadata.transcript,
-              thumbnail:   metadata.thumbnail
+              thumbnail:   thumbnailBase64 || metadata.thumbnail
             }
 
         await db.insert(reelMetadata).values(reelRow).onConflictDoNothing();

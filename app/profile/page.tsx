@@ -5,17 +5,15 @@ import { useEffect, useState } from 'react';
 import axios from 'axios';
 import { UserReelWithPlace } from '../types';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 
 export default function ProfilePage() {
   const { user, isLoaded, isSignedIn } = useUser();
-  const router = useRouter();
   const [reels, setReels] = useState<UserReelWithPlace[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (isLoaded && !isSignedIn) {
-      router.push('/auth');
+      window.location.href = '/auth';
       return;
     }
 
@@ -32,7 +30,7 @@ export default function ProfilePage() {
     if (isLoaded && isSignedIn) {
       fetchReels();
     }
-  }, [isLoaded, isSignedIn, router]);
+  }, [isLoaded, isSignedIn]);
 
   if (!isLoaded || loading) {
     return (
@@ -57,6 +55,19 @@ export default function ProfilePage() {
       </div>
 
       <div style={{padding:'24px',maxWidth:'100%'}}>
+        <div style={{display:'flex',gap:'16px',marginBottom:'24px'}}>
+          <Link href="/map" style={{flex:1,padding:'16px',background:'#1a1a1a',border:'1px solid #333',borderRadius:'8px',textDecoration:'none',textAlign:'center'}}>
+            <div style={{fontSize:'24px',marginBottom:'8px'}}>🗺️</div>
+            <div style={{fontSize:'16px',fontWeight:'bold',color:'#fff'}}>Map</div>
+            <div style={{fontSize:'12px',color:'#888'}}>View saved places</div>
+          </Link>
+          <Link href="/planner" style={{flex:1,padding:'16px',background:'#1a1a1a',border:'1px solid #333',borderRadius:'8px',textDecoration:'none',textAlign:'center'}}>
+            <div style={{fontSize:'24px',marginBottom:'8px'}}>✈️</div>
+            <div style={{fontSize:'16px',fontWeight:'bold',color:'#fff'}}>Plan Trip</div>
+            <div style={{fontSize:'12px',color:'#888'}}>AI trip planner</div>
+          </Link>
+        </div>
+
         <h2 style={{fontSize:'18px',fontWeight:'bold',marginBottom:'16px'}}>Saved Reels</h2>
         
         {reels.length === 0 ? (
@@ -75,7 +86,7 @@ export default function ProfilePage() {
                 </div>
                 <a href={reel.url} target="_blank" rel="noopener noreferrer" style={{display:'block',marginBottom:'12px'}}>
                   <img 
-                    src={reel.thumbnail ? `/api/image-proxy?url=${encodeURIComponent(reel.thumbnail)}` : '/reel-thumbnail-placeholder.jpg'} 
+                    src={reel.thumbnail || '/reel-thumbnail-placeholder.jpg'} 
                     alt="Reel" 
                     style={{width:'100%',aspectRatio:'9/16',maxHeight:'350px',objectFit:'cover',borderRadius:'4px',cursor:'pointer',background:'#222',display:'block'}}
                     onError={(e) => { (e.target as HTMLImageElement).src = '/reel-thumbnail-placeholder.jpg'; }}

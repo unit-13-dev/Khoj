@@ -92,30 +92,6 @@ export const spatialRefSys = pgTable("spatial_ref_sys", {
 	check("spatial_ref_sys_srid_check", sql`(srid > 0) AND (srid <= 998999)`),
 ]);
 
-export const discoveredPlaces = pgTable("discovered_places", {
-	id: uuid().defaultRandom().primaryKey().notNull(),
-	sessionId: uuid("session_id").notNull(),
-	placeId: text("place_id").notNull(),
-	placeName: text("place_name").notNull(),
-	placeType: text("place_type"),
-	rating: integer(),
-	source: text().notNull(),
-	lat: integer(),
-	lng: integer(),
-	formattedAddress: text("formatted_address"),
-	relevanceScore: integer("relevance_score"),
-	status: text().default('suggested').notNull(),
-	userFeedback: text("user_feedback"),
-	createdAt: timestamp("created_at", { mode: 'string' }).defaultNow().notNull(),
-}, (table) => [
-	index("idx_discovered_places_session").using("btree", table.sessionId.asc().nullsLast().op("uuid_ops")),
-	foreignKey({
-			columns: [table.sessionId],
-			foreignColumns: [planningSessions.id],
-			name: "discovered_places_session_id_planning_sessions_id_fk"
-		}).onDelete("cascade"),
-]);
-
 export const planningSessions = pgTable("planning_sessions", {
 	id: uuid().defaultRandom().primaryKey().notNull(),
 	userId: text("user_id").notNull(),
@@ -131,6 +107,8 @@ export const planningSessions = pgTable("planning_sessions", {
 	rejectedPlaces: text("rejected_places").array().default([""]),
 	createdAt: timestamp("created_at", { mode: 'string' }).defaultNow().notNull(),
 	updatedAt: timestamp("updated_at", { mode: 'string' }).defaultNow().notNull(),
+	title: text().default('Trip Planning'),
+	finalizedAt: timestamp("finalized_at", { mode: 'string' }),
 }, (table) => [
 	index("idx_planning_sessions_status").using("btree", table.status.asc().nullsLast().op("text_ops")),
 	index("idx_planning_sessions_user").using("btree", table.userId.asc().nullsLast().op("text_ops")),
@@ -138,6 +116,30 @@ export const planningSessions = pgTable("planning_sessions", {
 			columns: [table.userId],
 			foreignColumns: [user.userId],
 			name: "planning_sessions_user_id_user_user_id_fk"
+		}).onDelete("cascade"),
+]);
+
+export const discoveredPlaces = pgTable("discovered_places", {
+	id: uuid().defaultRandom().primaryKey().notNull(),
+	sessionId: uuid("session_id").notNull(),
+	placeId: text("place_id").notNull(),
+	placeName: text("place_name").notNull(),
+	placeType: text("place_type"),
+	rating: doublePrecision(),
+	source: text().notNull(),
+	lat: doublePrecision(),
+	lng: doublePrecision(),
+	formattedAddress: text("formatted_address"),
+	relevanceScore: integer("relevance_score"),
+	status: text().default('suggested').notNull(),
+	userFeedback: text("user_feedback"),
+	createdAt: timestamp("created_at", { mode: 'string' }).defaultNow().notNull(),
+}, (table) => [
+	index("idx_discovered_places_session").using("btree", table.sessionId.asc().nullsLast().op("uuid_ops")),
+	foreignKey({
+			columns: [table.sessionId],
+			foreignColumns: [planningSessions.id],
+			name: "discovered_places_session_id_planning_sessions_id_fk"
 		}).onDelete("cascade"),
 ]);
 export const geographyColumns = pgView("geography_columns", {	// TODO: failed to parse database type 'name'

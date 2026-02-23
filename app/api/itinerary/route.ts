@@ -14,6 +14,36 @@ const VISIT_DURATIONS: Record<string, number> = {
   default: 45
 };
 
+async function getGoogleDirections(origin: {lat: number, lng: number}, destination: {lat: number, lng: number}, mode: string) {
+  const url = `https://maps.googleapis.com/maps/api/directions/json?origin=${origin.lat},${origin.lng}&destination=${destination.lat},${destination.lng}&mode=${mode}&key=${process.env.GOOGLE_MAPS_API_KEY}`;
+  
+  const response = await fetch(url);
+  const data = await response.json();
+  
+  if (data.status === 'OK' && data.routes[0]) {
+    const leg = data.routes[0].legs[0];
+    return {
+      distance: leg.distance.value,
+      duration: Math.ceil(leg.duration.value / 60),
+      mode: mode
+    };
+  }
+  
+  return null;
+}
+
+async function getAllTransportOptions(origin: {lat: number, lng: number}, destination: {lat: number, lng: number}) {
+  const modes = ['driving', 'walking', 'transit', 'bicycling'];
+  const options = await Promise.all(
+    modes.map(async (mode) => {
+      const result = await getGoogleDirections(origin, destination, mode);
+      return result ? { ...result, mode } : null;
+    })
+  );
+  
+  return options.filter(opt => opt !== null);
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { userId } = await auth();
@@ -21,7 +51,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { placeIds, startTime } = await req.json();
+    const { placeIds, startTime, transportMode } = await req.json();
 
     if (!placeIds || placeIds.length < 2) {
       return NextResponse.json({ error: 'Select at least 2 places' }, { status: 400 });
@@ -30,6 +60,8 @@ export async function POST(req: NextRequest) {
     if (placeIds.length > 8) {
       return NextResponse.json({ error: 'Maximum 8 places allowed' }, { status: 400 });
     }
+
+    const mode = transportMode || 'driving';
 
     // Fetch place details
     const places = await db.execute(sql`
@@ -61,7 +93,7 @@ export async function POST(req: NextRequest) {
     // Optimize route
     const optimizedOrder = optimizeRoute(placeIds, distanceMatrix);
 
-    // Generate timeline
+    // Generate timeline with Google Directions
     const timeline = [];
     let currentTime = startTime || '09:00';
     let totalDistance = 0;
@@ -85,19 +117,29 @@ export async function POST(req: NextRequest) {
 
       if (i < optimizedOrder.length - 1) {
         const nextPlaceId = optimizedOrder[i + 1];
-        const distance = distanceMatrix[placeId][nextPlaceId];
-        const travelDuration = Math.ceil(distance / 1000 * 3); // ~3 min per km
-        totalDistance += distance;
+        const nextPlace = places.rows.find((p: any) => p.place_id === nextPlaceId);
+        
+        const transportOptions = await getAllTransportOptions(
+          { lat: place?.lat as number, lng: place?.lng as number },
+          { lat: nextPlace?.lat as number, lng: nextPlace?.lng as number }
+        );
 
-        timeline.push({
-          type: 'travel',
-          distance: Math.round(distance),
-          duration: travelDuration,
-          startTime: currentTime,
-          endTime: addMinutes(currentTime, travelDuration)
-        });
+        if (transportOptions.length > 0) {
+          const defaultOption = transportOptions.find(opt => opt.mode === mode) || transportOptions[0];
+          totalDistance += defaultOption.distance;
 
-        currentTime = addMinutes(currentTime, travelDuration + 10); // 10 min buffer
+          timeline.push({
+            type: 'travel',
+            distance: defaultOption.distance,
+            duration: defaultOption.duration,
+            mode: defaultOption.mode,
+            startTime: currentTime,
+            endTime: addMinutes(currentTime, defaultOption.duration),
+            options: transportOptions
+          });
+
+          currentTime = addMinutes(currentTime, defaultOption.duration + 5);
+        }
       }
     }
 
@@ -108,7 +150,8 @@ export async function POST(req: NextRequest) {
       timeline,
       totalDistance: Math.round(totalDistance),
       totalTime,
-      endTime: currentTime
+      endTime: currentTime,
+      transportMode: mode
     });
 
   } catch (error) {

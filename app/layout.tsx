@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import {ClerkProvider} from "@clerk/nextjs";
+import { ClerkProvider } from "@clerk/nextjs";
 import Nav from "./components/Nav";
 
 const geistSans = Geist({
@@ -31,10 +31,10 @@ export default function RootLayout({
           className={`${geistSans.variable} ${geistMono.variable} antialiased`}
           style={{margin:0,padding:0,height:'100vh',overflow:'hidden'}}
         >
-        <Nav/>
-        <main style={{height:'calc(100vh - 73px)',overflow:'auto',position:'relative'}}>
-          {children}
-        </main>
+          <Nav/>
+          <main style={{height:'calc(100vh - 73px)',overflow:'auto',position:'relative'}}>
+            {children}
+          </main>
         </body>
       </html>
     </ClerkProvider>

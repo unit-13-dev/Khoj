@@ -120,6 +120,13 @@
       "when": 1771534960137,
       "tag": "0016_colossal_satana",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1771846271664,
+      "tag": "0017_add_finalized_itinerary",
+      "breakpoints": true
     }
   ]
 }

@@ -25,6 +25,13 @@ export default function MapPage(){
   const [selectedPlaces, setSelectedPlaces] = useState<string[]>([]);
   const [itinerary, setItinerary] = useState<any>(null);
   const [generatingRoute, setGeneratingRoute] = useState(false);
+  const [showTransportModal, setShowTransportModal] = useState(false);
+  const [transportMode, setTransportMode] = useState('driving');
+  const [sidebarWidth, setSidebarWidth] = useState(380);
+  const [sidebarHeight, setSidebarHeight] = useState(70);
+  const [isResizing, setIsResizing] = useState(false);
+  const [startY, setStartY] = useState(0);
+  const [startHeight, setStartHeight] = useState(70);
    
   //this is to get the user's location
   useEffect(()=>{
@@ -61,7 +68,8 @@ export default function MapPage(){
       return;
     }
 
-    const place = selectedPlace; // Capture for async to ensure the current place details shown is for the selected one
+    const place = selectedPlace;
+    setSidebarHeight(70); // Reset to 70% when opening
 
     async function fetchDetails() {
 
@@ -92,6 +100,7 @@ export default function MapPage(){
 
   const closeSidebar= ()=>{
     setSidebarOpen(false);
+    setSidebarHeight(70);
     setTimeout(()=>{
       setSelectedPlace(null);
       setPlaceDetails(null);
@@ -110,10 +119,13 @@ export default function MapPage(){
     if (selectedPlaces.length < 2) return;
     
     setGeneratingRoute(true);
+    setShowTransportModal(false);
+    setSidebarHeight(70); // Reset to 70% when showing route
     try {
       const response = await axios.post('/api/itinerary', {
         placeIds: selectedPlaces,
-        startTime: '09:00'
+        startTime: '09:00',
+        transportMode: transportMode
       });
       setItinerary(response.data);
       setSidebarOpen(true);
@@ -127,17 +139,125 @@ export default function MapPage(){
     setPlanningMode(false);
     setSelectedPlaces([]);
     setItinerary(null);
+    setTransportMode('driving');
   };
+
+  const handleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    setIsResizing(true);
+    setStartY(e.touches[0].clientY);
+    setStartHeight(sidebarHeight);
+  };
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing) return;
+      
+      if (window.innerWidth >= 768) {
+        const newWidth = window.innerWidth - e.clientX;
+        setSidebarWidth(Math.max(300, Math.min(800, newWidth)));
+      }
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      if (!isResizing || window.innerWidth >= 768) return;
+      
+      const touch = e.touches[0];
+      const deltaY = startY - touch.clientY;
+      const deltaPercent = (deltaY / window.innerHeight) * 100;
+      const newHeight = startHeight + deltaPercent;
+      
+      setSidebarHeight(Math.max(20, Math.min(95, newHeight)));
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+    };
+
+    const handleTouchEnd = () => {
+      if (!isResizing) return;
+      setIsResizing(false);
+      
+      // Snap to positions
+      if (sidebarHeight < 40) {
+        setSidebarOpen(false);
+        setSidebarHeight(70);
+      } else if (sidebarHeight < 60) {
+        setSidebarHeight(70);
+      } else if (sidebarHeight > 85) {
+        setSidebarHeight(90);
+      } else {
+        setSidebarHeight(70);
+      }
+    };
+
+    if (isResizing) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      document.addEventListener('touchmove', handleTouchMove, { passive: false });
+      document.addEventListener('touchend', handleTouchEnd);
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('touchmove', handleTouchMove);
+      document.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, [isResizing, sidebarHeight, startY, startHeight]);
 
   return(
     <div className='relative w-full h-full overflow-hidden'>
-      {planningMode && (
+      {planningMode && !itinerary && (
         <div style={{position:'absolute',top:'16px',left:'50%',transform:'translateX(-50%)',zIndex:50,background:'#fff',color:'#000',padding:'12px 24px',borderRadius:'8px',boxShadow:'0 2px 8px rgba(0,0,0,0.15)',display:'flex',gap:'16px',alignItems:'center'}}>
           <span>{selectedPlaces.length} selected</span>
           <button onClick={exitPlanning} style={{padding:'6px 12px',border:'1px solid #ddd',borderRadius:'4px',background:'#fff'}}>Cancel</button>
-          <button onClick={generateRoute} disabled={selectedPlaces.length < 2 || generatingRoute} style={{padding:'6px 12px',background:selectedPlaces.length < 2 ? '#ccc' : '#000',color:'#fff',borderRadius:'4px',border:'none',cursor:selectedPlaces.length < 2 ? 'not-allowed' : 'pointer'}}>
-            {generatingRoute ? 'Generating...' : 'Chart Route'}
+          <button onClick={() => setShowTransportModal(true)} disabled={selectedPlaces.length < 2} style={{padding:'6px 12px',background:selectedPlaces.length < 2 ? '#ccc' : '#000',color:'#fff',borderRadius:'4px',border:'none',cursor:selectedPlaces.length < 2 ? 'not-allowed' : 'pointer'}}>
+            Chart Route
           </button>
+        </div>
+      )}
+
+      {showTransportModal && (
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.5)',zIndex:100,display:'flex',alignItems:'center',justifyContent:'center'}} onClick={() => setShowTransportModal(false)}>
+          <div style={{background:'#fff',color:'#000',padding:'24px',borderRadius:'12px',maxWidth:'400px',width:'90%'}} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{marginBottom:'16px',fontSize:'18px',fontWeight:'bold'}}>Select Transport Mode</h3>
+            
+            <div style={{marginBottom:'20px'}}>
+              {[
+                { value: 'driving', label: 'Driving', icon: '🚗' },
+                { value: 'walking', label: 'Walking', icon: '🚶' },
+                { value: 'transit', label: 'Transit', icon: '🚌' },
+                { value: 'bicycling', label: 'Bicycling', icon: '🚴' }
+              ].map(mode => (
+                <label key={mode.value} style={{display:'flex',alignItems:'center',padding:'12px',border:'2px solid',borderColor:transportMode === mode.value ? '#000' : '#ddd',borderRadius:'8px',marginBottom:'8px',cursor:'pointer'}}>
+                  <input 
+                    type="radio" 
+                    name="transport" 
+                    value={mode.value}
+                    checked={transportMode === mode.value}
+                    onChange={(e) => setTransportMode(e.target.value)}
+                    style={{marginRight:'12px'}}
+                  />
+                  <span style={{fontSize:'24px',marginRight:'12px'}}>{mode.icon}</span>
+                  <span style={{fontWeight:transportMode === mode.value ? 'bold' : 'normal'}}>{mode.label}</span>
+                </label>
+              ))}
+            </div>
+
+            <div style={{display:'flex',gap:'8px'}}>
+              <button onClick={() => setShowTransportModal(false)} style={{flex:1,padding:'10px',border:'1px solid #ddd',borderRadius:'8px',background:'#fff'}}>
+                Cancel
+              </button>
+              <button onClick={generateRoute} disabled={generatingRoute} style={{flex:1,padding:'10px',background:'#000',color:'#fff',borderRadius:'8px',border:'none',cursor:generatingRoute ? 'wait' : 'pointer'}}>
+                {generatingRoute ? 'Generating...' : 'Generate'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -200,44 +320,81 @@ export default function MapPage(){
       </APIProvider>
       
       {/* Overlay backdrop for mobile */}
-      {sidebarOpen && (
+      {sidebarOpen && (selectedPlace || itinerary) && (
         <div 
           className="absolute inset-0 bg-foreground/20 md:hidden z-10 transition-opacity duration-300"
           onClick={closeSidebar}
         />
       )}
       
-      <div className={`
+      {(selectedPlace || itinerary) && (
+      <div 
+        className={`
           absolute bg-background shadow-lg z-40 border-l border-border
-          transition-transform duration-300 ease-in-out
           
-          /* Mobile: bottom sheet taking 70% height */
-          inset-x-0 bottom-0 h-[70vh] rounded-t-2xl
-          ${sidebarOpen ? 'translate-y-0' : 'translate-y-full'}
+          /* Mobile: bottom sheet */
+          inset-x-0 bottom-0 rounded-t-2xl
+          ${sidebarOpen ? 'translate-y-0' : ''}
           
           /* Desktop: right sidebar */
           md:inset-y-0 md:right-0 md:left-auto md:bottom-auto
-          md:w-95 md:h-full md:rounded-none
+          md:h-full md:rounded-none
           ${sidebarOpen ? 'md:translate-x-0' : 'md:translate-x-full'}
           md:translate-y-0
-        `}>
+        `}
+        style={{
+          height: typeof window !== 'undefined' && window.innerWidth < 768 ? (sidebarOpen ? `${sidebarHeight}vh` : '60px') : '100%',
+          width: typeof window !== 'undefined' && window.innerWidth >= 768 ? `${sidebarWidth}px` : '100%',
+          transform: typeof window !== 'undefined' && window.innerWidth < 768 && !sidebarOpen ? 'translateY(calc(100% - 60px))' : undefined,
+          transition: isResizing ? 'none' : 'transform 0.3s ease-in-out, height 0.3s ease-in-out'
+        }}
+      >
+        {/* Resize handle - Desktop (left edge) */}
+        <div 
+          className="hidden md:block absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize hover:bg-blue-500 transition-colors"
+          onMouseDown={handleMouseDown}
+          style={{zIndex: 50}}
+        />
+
+        {/* Resize handle - Mobile (top edge) */}
+        <div 
+          className="md:hidden absolute top-0 left-0 right-0 h-10 cursor-ns-resize flex items-center justify-center touch-none bg-background"
+          onTouchStart={handleTouchStart}
+          onClick={() => {
+            if (!sidebarOpen) {
+              setSidebarOpen(true);
+              setSidebarHeight(70);
+            }
+          }}
+          style={{zIndex: 50}}
+        >
+          <div className="w-12 h-1.5 bg-gray-400 rounded-full" />
+        </div>
 
           {/* header */}
-          <div className='flex item-center justify-between border-b px-5 py-4 '>
-            <h1> {loadingDetails ? "loading..." : placeDetails?.displayName}</h1>
+          <div className='flex item-center justify-between border-b px-5 py-4' style={{marginTop: typeof window !== 'undefined' && window.innerWidth < 768 ? '10px' : '0', display: typeof window !== 'undefined' && window.innerWidth < 768 && !sidebarOpen ? 'none' : 'flex'}}>
+            <h1> {loadingDetails ? "loading..." : itinerary ? "Your Route" : placeDetails?.displayName}</h1>
             <button onClick={closeSidebar}>
-              <img src="./cross.svg" className='w-5 h-5'></img>
+              <img src="/cross.svg" className='w-5 h-5'></img>
             </button>
           </div>
 
           {/* content */}
-          <div className="overflow-y-auto h-[calc(100%-80px)] md:h-[calc(100%-56px)]">
+          <div className="overflow-y-auto" style={{
+            height: typeof window !== 'undefined' && window.innerWidth < 768 
+              ? (sidebarOpen ? `calc(${sidebarHeight}vh - 90px)` : '0px')
+              : 'calc(100% - 56px)',
+            display: typeof window !== 'undefined' && window.innerWidth < 768 && !sidebarOpen ? 'none' : 'block'
+          }}>
             {itinerary ? (
               <div style={{padding:'20px'}}>
                 <div style={{marginBottom:'16px',paddingBottom:'16px',borderBottom:'1px solid #333'}}>
                   <div style={{fontSize:'18px',fontWeight:'bold',marginBottom:'8px'}}>Your Route - {itinerary.route.length} places</div>
-                  <div style={{fontSize:'14px',color:'#888'}}>
+                  <div style={{fontSize:'14px',color:'#888',marginBottom:'8px'}}>
                     Total: {Math.floor(itinerary.totalTime / 60)}h {itinerary.totalTime % 60}m | {(itinerary.totalDistance / 1000).toFixed(1)} km
+                  </div>
+                  <div style={{fontSize:'11px',color:'#666'}}>
+                    Tap transport options to see alternatives
                   </div>
                 </div>
                 
@@ -250,9 +407,26 @@ export default function MapPage(){
                         <div style={{fontSize:'12px',color:'#666'}}>Visit duration: {item.visitDuration} min</div>
                       </div>
                     ) : (
-                      <div style={{padding:'8px 12px',fontSize:'14px',color:'#888',display:'flex',alignItems:'center',gap:'8px'}}>
-                        <span>↓</span>
-                        <span>{item.duration} min ({(item.distance / 1000).toFixed(1)} km)</span>
+                      <div style={{padding:'12px',background:'#0a0a0a',borderRadius:'8px',border:'1px solid #222'}}>
+                        <div style={{fontSize:'12px',color:'#666',marginBottom:'8px'}}>Travel options:</div>
+                        {item.options?.map((opt: any, optIdx: number) => (
+                          <div key={optIdx} style={{padding:'8px',marginBottom:'4px',background:opt.mode === item.mode ? '#1a1a1a' : 'transparent',borderRadius:'4px',border:opt.mode === item.mode ? '1px solid #333' : '1px solid transparent',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+                            <div style={{display:'flex',alignItems:'center',gap:'8px'}}>
+                              <span style={{fontSize:'18px'}}>
+                                {opt.mode === 'driving' && '🚗'}
+                                {opt.mode === 'walking' && '🚶'}
+                                {opt.mode === 'transit' && '🚌'}
+                                {opt.mode === 'bicycling' && '🚴'}
+                              </span>
+                              <span style={{fontSize:'13px',color:opt.mode === item.mode ? '#fff' : '#888',textTransform:'capitalize'}}>
+                                {opt.mode}
+                              </span>
+                            </div>
+                            <div style={{fontSize:'13px',color:opt.mode === item.mode ? '#fff' : '#888'}}>
+                              {opt.duration} min • {(opt.distance / 1000).toFixed(1)} km
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>
@@ -378,7 +552,7 @@ export default function MapPage(){
                     href={`https://www.google.com/maps/dir/?api=1&destination=${selectedPlace?.lat},${selectedPlace?.lng}&destination_place_id=${placeDetails.placeId}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex-1 bg-foreground hover:bg-foreground/90 text-background text-center py-2.5 px-4 rounded-lg text-sm font-medium transition-colors"
+                    className={`${isSignedIn && !planningMode ? 'flex-1' : 'flex-1'} bg-foreground hover:bg-foreground/90 text-background text-center py-2.5 px-4 rounded-lg text-sm font-medium transition-colors`}
                   >
                     Directions
                   </a>
@@ -386,7 +560,7 @@ export default function MapPage(){
                     href={`https://www.google.com/maps/place/?q=place_id:${placeDetails.placeId}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex-1 border border-border hover:bg-accent text-foreground text-center py-2.5 px-4 rounded-lg text-sm font-medium transition-colors"
+                    className={`${isSignedIn && !planningMode ? 'flex-1' : 'flex-1'} border border-border hover:bg-accent text-foreground text-center py-2.5 px-4 rounded-lg text-sm font-medium transition-colors`}
                   >
                     View on Maps
                   </a>
@@ -396,6 +570,7 @@ export default function MapPage(){
           </div>
 
       </div>
+      )}
   </div>
   );
 }

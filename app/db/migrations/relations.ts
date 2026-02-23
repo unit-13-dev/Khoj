@@ -42,17 +42,17 @@ export const userPlacesRelations = relations(userPlaces, ({one}) => ({
 	}),
 }));
 
+export const planningSessionsRelations = relations(planningSessions, ({one, many}) => ({
+	user: one(user, {
+		fields: [planningSessions.userId],
+		references: [user.userId]
+	}),
+	discoveredPlaces: many(discoveredPlaces),
+}));
+
 export const discoveredPlacesRelations = relations(discoveredPlaces, ({one}) => ({
 	planningSession: one(planningSessions, {
 		fields: [discoveredPlaces.sessionId],
 		references: [planningSessions.id]
-	}),
-}));
-
-export const planningSessionsRelations = relations(planningSessions, ({one, many}) => ({
-	discoveredPlaces: many(discoveredPlaces),
-	user: one(user, {
-		fields: [planningSessions.userId],
-		references: [user.userId]
 	}),
 }));
