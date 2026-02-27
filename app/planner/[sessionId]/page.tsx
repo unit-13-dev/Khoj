@@ -95,6 +95,12 @@ export default function PlannerPage() {
         }
       }
       
+      // Load finalized itinerary if available
+      if (sessionData.finalizedItinerary) {
+        console.log('FRONTEND: Loading finalized itinerary:', sessionData.finalizedItinerary);
+        setFinalItinerary(sessionData.finalizedItinerary);
+      }
+      
       // Load conversation history if available
       if (sessionData.conversationHistory && Array.isArray(sessionData.conversationHistory)) {
         // Convert timestamp strings to Date objects
@@ -355,216 +361,6 @@ export default function PlannerPage() {
       {/* Messages */}
       <div style={{flex:1,overflowY:'auto',padding:'24px'}}>
         <div style={{maxWidth:'800px',margin:'0 auto'}}>
-          {/* Final Itinerary Card */}
-          {finalItinerary && (
-            <div style={{marginBottom:'24px'}}>
-              {/* Header */}
-              <div style={{padding:'24px',background:'linear-gradient(135deg, #1a1a1a 0%, #0a0a0a 100%)',border:'2px solid #4ade80',borderRadius:'16px 16px 0 0',boxShadow:'0 4px 20px rgba(74, 222, 128, 0.2)'}}>
-                <div style={{fontSize:'24px',fontWeight:'bold',marginBottom:'8px',color:'#4ade80'}}>
-                  ✓ Your Day Trip is Ready!
-                </div>
-                <div style={{fontSize:'18px',fontWeight:'bold',marginBottom:'8px',color:'#fff'}}>
-                  {finalItinerary.title}
-                </div>
-                <div style={{fontSize:'14px',color:'#888',marginBottom:'0'}}>
-                  {finalItinerary.items.length} stops • {finalItinerary.totalDistance} km total • Full day experience
-                </div>
-              </div>
-              
-              {/* Timeline with Place Cards */}
-              <div style={{background:'#0a0a0a',padding:'20px',borderLeft:'2px solid #4ade80',borderRight:'2px solid #4ade80'}}>
-                {finalItinerary.items.map((item: any, index: number) => (
-                  <div key={item.placeId} style={{
-                    marginBottom: index < finalItinerary.items.length - 1 ? '32px' : '0',
-                    position:'relative'
-                  }}>
-                    {/* Time Badge */}
-                    <div style={{
-                      display:'inline-block',
-                      padding:'8px 16px',
-                      background:'#4ade80',
-                      color:'#000',
-                      borderRadius:'20px',
-                      fontSize:'14px',
-                      fontWeight:'bold',
-                      marginBottom:'12px'
-                    }}>
-                      🕐 {item.arrivalTime}
-                    </div>
-                    
-                    {/* Place Card */}
-                    <div style={{
-                      background:'#1a1a1a',
-                      border:'1px solid #333',
-                      borderRadius:'12px',
-                      overflow:'hidden',
-                      display:'flex',
-                      flexDirection:'row',
-                      gap:'16px'
-                    }}>
-                      {/* Photo */}
-                      <div style={{
-                        width:'200px',
-                        minWidth:'200px',
-                        height:'200px',
-                        backgroundImage: item.photoUrl ? `url(${item.photoUrl})` : 'linear-gradient(135deg, #1a1a1a 0%, #0a0a0a 100%)',
-                        backgroundSize:'cover',
-                        backgroundPosition:'center',
-                        display:'flex',
-                        alignItems:'center',
-                        justifyContent:'center',
-                        position:'relative'
-                      }}>
-                        {!item.photoUrl && (
-                          <div style={{fontSize:'48px',opacity:0.3}}>🏛️</div>
-                        )}
-                        
-                        {/* Sequence number overlay */}
-                        <div style={{
-                          position:'absolute',
-                          top:'12px',
-                          left:'12px',
-                          width:'36px',
-                          height:'36px',
-                          borderRadius:'50%',
-                          background:'rgba(0, 0, 0, 0.8)',
-                          color:'#4ade80',
-                          display:'flex',
-                          alignItems:'center',
-                          justifyContent:'center',
-                          fontWeight:'bold',
-                          fontSize:'16px',
-                          border:'2px solid #4ade80'
-                        }}>
-                          {index + 1}
-                        </div>
-                      </div>
-                      
-                      {/* Content */}
-                      <div style={{flex:1,padding:'16px 16px 16px 0'}}>
-                        {/* Place name */}
-                        <div style={{fontSize:'18px',fontWeight:'bold',marginBottom:'8px',color:'#fff'}}>
-                          {item.name}
-                        </div>
-                        
-                        {/* Time slot */}
-                        <div style={{
-                          fontSize:'13px',
-                          color:'#4ade80',
-                          marginBottom:'8px',
-                          fontWeight:'600'
-                        }}>
-                          ⏱️ {item.timeSlot} ({item.duration} minutes)
-                        </div>
-                        
-                        {/* Place type */}
-                        <div style={{fontSize:'13px',color:'#888',marginBottom:'12px',textTransform:'capitalize'}}>
-                          📍 {item.type.replace(/_/g, ' ')}
-                        </div>
-                        
-                        {/* Suggestion */}
-                        <div style={{
-                          fontSize:'13px',
-                          color:'#aaa',
-                          fontStyle:'italic',
-                          padding:'10px 14px',
-                          background:'rgba(74, 222, 128, 0.1)',
-                          borderRadius:'8px',
-                          borderLeft:'3px solid #4ade80'
-                        }}>
-                          💡 {item.suggestion}
-                        </div>
-                      </div>
-                    </div>
-                    
-                    {/* Travel info to next place */}
-                    {index < finalItinerary.items.length - 1 && (
-                      <div style={{
-                        marginTop:'16px',
-                        padding:'12px 16px',
-                        background:'#1a1a1a',
-                        borderRadius:'8px',
-                        border:'1px solid #333',
-                        fontSize:'13px',
-                        color:'#888',
-                        display:'flex',
-                        alignItems:'center',
-                        gap:'8px'
-                      }}>
-                        <span style={{fontSize:'18px'}}>🚶</span>
-                        <span>
-                          {item.travelTime} min walk ({item.distanceFromPrevious.toFixed(2)} km) to next stop
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-              
-              {/* Important Tips Section */}
-              <div style={{
-                padding:'20px',
-                background:'#1a1a1a',
-                border:'2px solid #4ade80',
-                borderTop:'1px solid #333',
-                borderRadius:'0 0 16px 16px'
-              }}>
-                <div style={{fontSize:'16px',fontWeight:'bold',marginBottom:'12px',color:'#4ade80'}}>
-                  📌 Important Tips
-                </div>
-                <div style={{fontSize:'13px',color:'#aaa',lineHeight:'1.8'}}>
-                  • Keep valuables secure and be aware of your surroundings<br/>
-                  • Carry sufficient cash as some places may not accept cards<br/>
-                  • Wear comfortable walking shoes for exploring<br/>
-                  • Stay hydrated and take breaks when needed<br/>
-                  • Respect local customs, especially at religious sites<br/>
-                  • Best to start early to avoid crowds and heat
-                </div>
-              </div>
-              
-              {/* Action buttons */}
-              <div style={{display:'flex',gap:'12px',marginTop:'16px'}}>
-                <button
-                  onClick={() => router.push('/map')}
-                  style={{
-                    flex:1,
-                    padding:'14px',
-                    background:'#4ade80',
-                    color:'#000',
-                    border:'none',
-                    borderRadius:'8px',
-                    fontWeight:'bold',
-                    cursor:'pointer',
-                    fontSize:'14px'
-                  }}
-                >
-                  📍 View on Map
-                </button>
-                <button
-                  onClick={() => {
-                    const itineraryText = finalItinerary.items.map((item: any, i: number) => 
-                      `${i + 1}. ${item.arrivalTime} - ${item.name}\n   ${item.suggestion}`
-                    ).join('\n\n');
-                    navigator.clipboard.writeText(`${finalItinerary.title}\n\n${itineraryText}`);
-                    alert('Itinerary copied to clipboard!');
-                  }}
-                  style={{
-                    padding:'14px 20px',
-                    background:'#333',
-                    color:'#fff',
-                    border:'1px solid #555',
-                    borderRadius:'8px',
-                    cursor:'pointer',
-                    fontSize:'14px',
-                    fontWeight:'bold'
-                  }}
-                >
-                  📋 Share
-                </button>
-              </div>
-            </div>
-          )}
-
           {/* Approved Places Carousel */}
           {approvedPlaces.length > 0 && (
             <div style={{marginBottom:'24px',padding:'16px',background:'#1a1a1a',border:'1px solid #333',borderRadius:'12px'}}>
@@ -899,6 +695,119 @@ export default function PlannerPage() {
               </div>
             </div>
           )}
+          
+          {/* Final Itinerary Card - Shown at the bottom after all messages */}
+          {finalItinerary && finalItinerary.daySchedules && (
+            <div style={{marginBottom:'24px',marginTop:'32px'}}>
+              {/* Header */}
+              <div style={{padding:'24px',background:'linear-gradient(135deg, #1a1a1a 0%, #0a0a0a 100%)',border:'2px solid #4ade80',borderRadius:'16px 16px 0 0',boxShadow:'0 4px 20px rgba(74, 222, 128, 0.2)'}}>
+                <div style={{fontSize:'24px',fontWeight:'bold',marginBottom:'8px',color:'#4ade80'}}>
+                  ✓ Your {finalItinerary.days}-Day Trip is Ready!
+                </div>
+                <div style={{fontSize:'18px',fontWeight:'bold',marginBottom:'8px',color:'#fff'}}>
+                  {finalItinerary.title}
+                </div>
+                <div style={{fontSize:'14px',color:'#888',marginBottom:'0'}}>
+                  {finalItinerary.totalPlaces} places • {finalItinerary.days} days • {finalItinerary.destination}
+                </div>
+              </div>
+              
+              {/* Day-by-Day Schedule */}
+              <div style={{background:'#0a0a0a',padding:'20px',borderLeft:'2px solid #4ade80',borderRight:'2px solid #4ade80'}}>
+                {finalItinerary.daySchedules.map((daySchedule: any, dayIndex: number) => (
+                  <div key={daySchedule.day} style={{marginBottom: dayIndex < finalItinerary.daySchedules.length - 1 ? '48px' : '0'}}>
+                    {/* Day Header */}
+                    <div style={{
+                      padding:'16px 20px',
+                      background:'linear-gradient(135deg, #4ade80 0%, #22c55e 100%)',
+                      color:'#000',
+                      borderRadius:'12px',
+                      marginBottom:'24px',
+                      fontWeight:'bold',
+                      fontSize:'18px'
+                    }}>
+                      📅 Day {daySchedule.day} {daySchedule.date ? `- ${daySchedule.date}` : ''}
+                      <div style={{fontSize:'14px',fontWeight:'normal',marginTop:'4px',opacity:0.8}}>
+                        {daySchedule.places.length} places • {daySchedule.totalDuration} min • {daySchedule.totalDistance.toFixed(2)} km
+                      </div>
+                    </div>
+                    
+                    {/* Timeline with Place Cards */}
+                    {daySchedule.places.map((item: any, index: number) => (
+                      <div key={`${daySchedule.day}-${item.place.placeId}-${index}`} style={{
+                        marginBottom: index < daySchedule.places.length - 1 ? '32px' : '0',
+                        position:'relative'
+                      }}>
+                        {/* Time Badge */}
+                        <div style={{
+                          display:'inline-block',
+                          padding:'8px 16px',
+                          background:'#4ade80',
+                          color:'#000',
+                          borderRadius:'20px',
+                          fontSize:'14px',
+                          fontWeight:'bold',
+                          marginBottom:'12px'
+                        }}>
+                          🕐 {item.arrivalTime} - {item.departureTime}
+                        </div>
+                        
+                        {/* Place Card */}
+                        <div style={{
+                          background:'#1a1a1a',
+                          border:'1px solid #333',
+                          borderRadius:'12px',
+                          overflow:'hidden',
+                          display:'flex',
+                          gap:'16px'
+                        }}>
+                          {/* Photo */}
+                          {item.photoUrl && (
+                            <div style={{width:'200px',height:'150px',flexShrink:0}}>
+                              <img 
+                                src={item.photoUrl} 
+                                alt={item.place.displayName}
+                                style={{width:'100%',height:'100%',objectFit:'cover'}}
+                              />
+                            </div>
+                          )}
+                          
+                          {/* Details */}
+                          <div style={{flex:1,padding:'16px'}}>
+                            <div style={{fontSize:'18px',fontWeight:'bold',marginBottom:'8px',color:'#fff'}}>
+                              {item.place.displayName}
+                            </div>
+                            <div style={{fontSize:'14px',color:'#888',marginBottom:'8px'}}>
+                              📍 {item.place.formattedAddress}
+                            </div>
+                            <div style={{fontSize:'14px',color:'#4ade80',marginBottom:'8px'}}>
+                              ⏱️ {item.duration} minutes • {item.timeSlot}
+                            </div>
+                            {item.travelTime > 0 && (
+                              <div style={{fontSize:'14px',color:'#888',marginBottom:'8px'}}>
+                                🚶 {item.travelTime} min travel ({item.distanceFromPrevious.toFixed(2)} km from previous)
+                              </div>
+                            )}
+                            <div style={{fontSize:'14px',color:'#fff',fontStyle:'italic'}}>
+                              💡 {item.suggestion}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+              
+              {/* Footer */}
+              <div style={{padding:'20px',background:'#1a1a1a',border:'2px solid #4ade80',borderRadius:'0 0 16px 16px',borderTop:'none'}}>
+                <div style={{fontSize:'14px',color:'#888',textAlign:'center'}}>
+                  🎉 Have an amazing trip! Save this itinerary or share it with your travel companions.
+                </div>
+              </div>
+            </div>
+          )}
+          
           <div ref={messagesEndRef} />
         </div>
       </div>

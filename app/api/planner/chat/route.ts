@@ -18,16 +18,28 @@ const SYSTEM_PROMPT = `You are an expert AI trip planner. Your role is to help u
 
 IMPORTANT: When suggesting places, ALWAYS prioritize places the user has saved from Instagram. These are marked with source: "instagram" and should be mentioned first as "places you've saved" or "from your Instagram saves".
 
-When a user tells you about their trip (destination, duration, interests), you should:
+PLACE DISCOVERY RULES:
+- When a user tells you about their trip (destination, duration, interests), the system will discover and show place cards
+- When a user asks for specific types of places (temples, restaurants, ghats), the system will discover those
+- When a user says "finalize", "looks amazing", "perfect", or similar approval messages, NO place cards will be shown
+- You should adjust your response based on whether places are being shown or not
+
+When places ARE being shown:
 1. Acknowledge their request enthusiastically
 2. Tell them "I'm showing you some great places above" or "Check out the places I found above"
 3. The system will automatically show place cards ABOVE your message
 4. Highlight which ones are from their Instagram saves
 5. Ask follow-up questions to refine suggestions
 
+When places are NOT being shown (finalize, approval messages):
+1. Respond naturally to their message
+2. DO NOT mention "places above" or "cards above"
+3. For finalize requests: Say "Perfect! I'm creating your final itinerary now. You'll see it displayed below with photos, timings, and all the details!"
+4. For approval messages: Acknowledge their satisfaction and ask if they want to finalize or see more options
+
 CRITICAL: When the user asks to "finalize", "create itinerary", or says they're "done":
 - DO NOT generate a text-based itinerary in your response
-- Simply say something like "Perfect! I'm creating your final itinerary now. You'll see it displayed above with photos, timings, and all the details!"
+- Simply say something like "Perfect! I'm creating your final itinerary now. You'll see it displayed below with photos, timings, and all the details!"
 - The system will automatically generate and display a beautiful visual itinerary with place cards, photos, and timing
 
 Be conversational, friendly, and helpful. Extract key information:
@@ -36,7 +48,7 @@ Be conversational, friendly, and helpful. Extract key information:
 - Travel dates or month
 - Interests (food, culture, nature, adventure, etc.)
 
-ALWAYS mention that places are shown above your message. Guide users to review the cards and click Keep/Skip.`;
+ONLY mention places being shown above when the system is actually showing them.`;
 
 function extractTripInfo(messages: any[], currentSession: any) {
   const lastUserMessage = messages.filter(m => m.role === 'user').pop();
@@ -133,7 +145,48 @@ function extractTripInfo(messages: any[], currentSession: any) {
   }
   
   const daysMatch = content.match(/(\d+)\s*days?/i);
-  const days = daysMatch ? parseInt(daysMatch[1]) : null;
+  const days = daysMatch ? parseInt(daysMatch[1]) : undefined;
+  
+  // Extract dates - look for patterns like "16 april to 19 april" or "april 16-19"
+  let startDate: Date | undefined = undefined;
+  let endDate: Date | undefined = undefined;
+  let calculatedDays: number | undefined = undefined;
+  
+  // Pattern: "16 april to 19 april" or "april 16 to april 19"
+  const dateRangePattern = /(\d{1,2})\s+(january|february|march|april|may|june|july|august|september|october|november|december)\s+(?:to|until|-)\s+(\d{1,2})\s+(january|february|march|april|may|june|july|august|september|october|november|december)/i;
+  const dateRangeMatch = content.match(dateRangePattern);
+  
+  if (dateRangeMatch) {
+    const [, startDay, startMonth, endDay, endMonth] = dateRangeMatch;
+    const currentYear = new Date().getFullYear();
+    const nextYear = currentYear + 1;
+    
+    // Parse months
+    const months: Record<string, number> = {
+      january: 0, february: 1, march: 2, april: 3, may: 4, june: 5,
+      july: 6, august: 7, september: 8, october: 9, november: 10, december: 11
+    };
+    
+    const startMonthNum = months[startMonth.toLowerCase()];
+    const endMonthNum = months[endMonth.toLowerCase()];
+    
+    // Determine year (if month has passed this year, use next year)
+    const now = new Date();
+    const startYear = startMonthNum < now.getMonth() ? nextYear : currentYear;
+    const endYear = endMonthNum < now.getMonth() ? nextYear : currentYear;
+    
+    startDate = new Date(startYear, startMonthNum, parseInt(startDay));
+    endDate = new Date(endYear, endMonthNum, parseInt(endDay));
+    
+    // Calculate days if not explicitly mentioned
+    if (startDate && endDate) {
+      const diffTime = Math.abs(endDate.getTime() - startDate.getTime());
+      calculatedDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1; // +1 to include both start and end day
+      console.log('Calculated days from dates:', calculatedDays);
+    }
+    
+    console.log('Extracted dates:', { startDate, endDate, calculatedDays });
+  }
   
   const interests: string[] = [];
   
@@ -248,6 +301,8 @@ function extractTripInfo(messages: any[], currentSession: any) {
   console.log('Specific place:', specificPlace);
   console.log('Is refining?:', isRefining);
   console.log('Days:', days);
+  console.log('Start date:', startDate);
+  console.log('End date:', endDate);
   console.log('Interests:', interests);
   console.log('Priority place types:', priorityPlaceTypes);
 
@@ -256,7 +311,9 @@ function extractTripInfo(messages: any[], currentSession: any) {
     specificPlace,
     allLocations: locations.length > 0 ? locations : (destination ? [destination] : []),
     city: destination,
-    days, 
+    days: days || calculatedDays, 
+    startDate,
+    endDate,
     interests,
     priorityPlaceTypes
   };
@@ -298,12 +355,30 @@ export async function POST(req: NextRequest) {
 
     let discoveredPlaces = null;
 
+    // Check if user wants to finalize - if so, skip place discovery
+    const userMessage = messages[messages.length - 1]?.content?.toLowerCase() || '';
+    const shouldFinalize = userMessage.includes('finalize') || 
+                          userMessage.includes('done') || 
+                          userMessage.includes('that\'s all') ||
+                          userMessage.includes('create itinerary') ||
+                          userMessage.includes('finish planning');
+    
+    // Intelligent decision: Should we discover places for this message?
+    const shouldDiscoverPlaces = tripInfo && 
+                                 tripInfo.destination && 
+                                 !shouldFinalize && // Don't discover when finalizing
+                                 !userMessage.includes('looks amazing') && // Don't discover for approval messages
+                                 !userMessage.includes('looks good') &&
+                                 !userMessage.includes('perfect') &&
+                                 !userMessage.includes('great selection');
+    
+    console.log('=== BACKEND: Place Discovery Decision ===');
+    console.log('Should finalize?', shouldFinalize);
+    console.log('Should discover places?', shouldDiscoverPlaces);
+    console.log('User message:', userMessage);
+
+    // Create or update session if we have trip info (regardless of whether we're discovering places)
     if (tripInfo && tripInfo.destination) {
-      console.log('=== BACKEND: Will discover places ===');
-      console.log('Primary region:', tripInfo.destination);
-      console.log('All locations:', tripInfo.allLocations);
-      console.log('Interests:', tripInfo.interests);
-      
       if (!currentSession) {
         console.log('Creating new session...');
         
@@ -314,16 +389,63 @@ export async function POST(req: NextRequest) {
         currentSession = await createSession(userId, {
           destination: tripInfo.destination,
           destinationImage: destinationImage || undefined,
-          days: tripInfo.days || undefined,
+          days: tripInfo.days,
+          startDate: tripInfo.startDate,
+          endDate: tripInfo.endDate,
           interests: tripInfo.interests
         });
         console.log('Session created:', currentSession.id);
+        console.log('Session dates:', { 
+          days: currentSession.days, 
+          startDate: currentSession.startDate, 
+          endDate: currentSession.endDate 
+        });
       } else {
-        // Update session destination if it was "New Trip" and we now have a real destination
-        if (currentSession.destination === 'New Trip' && tripInfo.destination !== 'New Trip') {
-          console.log('Updating session destination from "New Trip" to:', tripInfo.destination);
-          await updateSession(currentSession.id, { destination: tripInfo.destination });
-          currentSession.destination = tripInfo.destination;
+        // Update session with new trip info (destination, dates, days)
+        const shouldUpdate = 
+          (currentSession.destination === 'New Trip' && tripInfo.destination !== 'New Trip') ||
+          (tripInfo.days && tripInfo.days !== currentSession.days) ||
+          (tripInfo.startDate && !currentSession.startDate) ||
+          (tripInfo.endDate && !currentSession.endDate);
+        
+        if (shouldUpdate) {
+          console.log('Updating session with new trip info');
+          console.log('Current session:', { 
+            destination: currentSession.destination, 
+            days: currentSession.days,
+            startDate: currentSession.startDate,
+            endDate: currentSession.endDate
+          });
+          console.log('New trip info:', { 
+            destination: tripInfo.destination, 
+            days: tripInfo.days,
+            startDate: tripInfo.startDate,
+            endDate: tripInfo.endDate
+          });
+          
+          const updates: any = {};
+          if (currentSession.destination === 'New Trip' && tripInfo.destination !== 'New Trip') {
+            updates.destination = tripInfo.destination;
+          }
+          if (tripInfo.days) {
+            updates.days = tripInfo.days;
+          }
+          if (tripInfo.startDate) {
+            updates.startDate = tripInfo.startDate;
+          }
+          if (tripInfo.endDate) {
+            updates.endDate = tripInfo.endDate;
+          }
+          
+          await updateSession(currentSession.id, updates);
+          
+          // Update local session object
+          if (updates.destination) currentSession.destination = updates.destination;
+          if (updates.days) currentSession.days = updates.days;
+          if (updates.startDate) currentSession.startDate = updates.startDate;
+          if (updates.endDate) currentSession.endDate = updates.endDate;
+          
+          console.log('Session updated with:', updates);
         }
         
         // Update with destination image if not present
@@ -335,9 +457,16 @@ export async function POST(req: NextRequest) {
           }
         }
       }
+    }
+
+    if (shouldDiscoverPlaces) {
+      console.log('=== BACKEND: Will discover places ===');
+      console.log('Primary region:', tripInfo!.destination);
+      console.log('All locations:', tripInfo!.allLocations);
+      console.log('Interests:', tripInfo!.interests);
 
       const excludePlaceIds = [
-        ...(currentSession.rejectedPlaces || []) // Only exclude rejected places, not approved ones
+        ...(currentSession!.rejectedPlaces || []) // Only exclude rejected places, not approved ones
       ];
       console.log('Excluded place IDs (rejected only):', excludePlaceIds);
 
@@ -443,7 +572,10 @@ export async function POST(req: NextRequest) {
         `${i + 1}. ${p.placeName} (${p.placeType}${p.source === 'instagram' ? ' - from user saves' : ''})`
       ).join('\n');
       
-      aiSystemPrompt += `\n\nIMPORTANT: The following places were just discovered and will be shown to the user as cards ABOVE your message. ONLY mention places from this list. Do NOT mention places that aren't in this list:\n\n${placesList}\n\nDescribe these specific places in your response. Prioritize mentioning places marked "from user saves" first.`;
+      aiSystemPrompt += `\n\nIMPORTANT: The following places were just discovered and WILL BE SHOWN to the user as cards ABOVE your message. ONLY mention places from this list. Do NOT mention places that aren't in this list:\n\n${placesList}\n\nDescribe these specific places in your response. Tell the user to check the cards above. Prioritize mentioning places marked "from user saves" first.`;
+    } else {
+      // No places being shown - inform the AI
+      aiSystemPrompt += `\n\nIMPORTANT: NO place cards are being shown for this message. Do NOT mention "places above" or "cards above". Respond naturally to the user's message without referring to place cards.`;
     }
 
     const response = await generateText({
@@ -468,14 +600,7 @@ export async function POST(req: NextRequest) {
     // We'll add places to conversation history after we fetch them
     let placesData = null;
 
-    // Check if user wants to finalize
-    const userMessage = messages[messages.length - 1]?.content?.toLowerCase() || '';
-    const shouldFinalize = userMessage.includes('finalize') || 
-                          userMessage.includes('done') || 
-                          userMessage.includes('that\'s all') ||
-                          userMessage.includes('create itinerary') ||
-                          userMessage.includes('finish planning');
-
+    // Check if user wants to finalize (using the shouldFinalize variable defined earlier)
     if (shouldFinalize && currentSession && currentSession.approvedPlaces && currentSession.approvedPlaces.length > 0) {
       console.log('=== BACKEND: Finalizing itinerary ===');
       await finalizeSession(currentSession.id);

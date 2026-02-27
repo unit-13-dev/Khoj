@@ -56,7 +56,7 @@ export async function getUserActiveSession(userId: string) {
   return session;
 }
 
-export async function updateSession(sessionId: string, updates: Partial<SessionData> & { status?: string; title?: string; destinationImage?: string }) {
+export async function updateSession(sessionId: string, updates: Partial<SessionData> & { status?: string; title?: string; destinationImage?: string; conversationHistory?: any }) {
   const [updated] = await db
     .update(planningSessions)
     .set({

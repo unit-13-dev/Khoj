@@ -32,11 +32,14 @@ export async function GET(req: NextRequest) {
       title: session.title,
       destination: session.destination,
       days: session.days,
+      startDate: session.startDate,
+      endDate: session.endDate,
       interests: session.interests,
       status: session.status,
       conversationHistory: session.conversationHistory,
       approvedPlaces: session.approvedPlaces,
       rejectedPlaces: session.rejectedPlaces,
+      finalizedItinerary: session.finalizedItinerary,
       finalizedAt: session.finalizedAt,
       createdAt: session.createdAt
     });
