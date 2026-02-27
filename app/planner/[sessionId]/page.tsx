@@ -25,7 +25,7 @@ export default function PlannerPage() {
   const { user, isLoaded, isSignedIn } = useUser();
   const router = useRouter();
   const params = useParams();
-  const sessionIdFromUrl = params.sessionId?.[0] || null;
+  const sessionIdFromUrl = typeof params.sessionId === 'string' ? params.sessionId : null;
   
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -36,6 +36,7 @@ export default function PlannerPage() {
   const [sessionTitle, setSessionTitle] = useState('Trip Planning');
   const [finalItinerary, setFinalItinerary] = useState<any>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const shouldScrollRef = useRef(true);
 
   // Debug finalItinerary changes
   useEffect(() => {
@@ -135,7 +136,11 @@ export default function PlannerPage() {
   };
 
   useEffect(() => {
-    scrollToBottom();
+    if (shouldScrollRef.current) {
+      scrollToBottom();
+    }
+    // Reset to true after scroll
+    shouldScrollRef.current = true;
   }, [messages]);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -235,6 +240,9 @@ export default function PlannerPage() {
     if (!sessionId) return;
 
     try {
+      // Prevent auto-scroll when updating place actions
+      shouldScrollRef.current = false;
+      
       // Make backend API call to save the action
       await axios.post('/api/planner/discover', {
         action,
@@ -276,6 +284,8 @@ export default function PlannerPage() {
       // Don't add any new messages - just update the UI
     } catch (error) {
       console.error('Place action error:', error);
+      // Reset scroll flag on error
+      shouldScrollRef.current = true;
     }
   };
 
@@ -326,12 +336,20 @@ export default function PlannerPage() {
           <h1 style={{fontSize:'20px',fontWeight:'bold',marginBottom:'4px'}}>{sessionTitle}</h1>
           <p style={{fontSize:'14px',color:'#888'}}>Plan your perfect journey with AI</p>
         </div>
-        <button 
-          onClick={() => router.push('/map')}
-          style={{padding:'8px 16px',background:'#1a1a1a',border:'1px solid #333',borderRadius:'6px',cursor:'pointer'}}
-        >
-          Back to Map
-        </button>
+        <div style={{display:'flex',gap:'12px'}}>
+          <button 
+            onClick={() => router.push('/planner')}
+            style={{padding:'8px 16px',background:'#1a1a1a',border:'1px solid #333',borderRadius:'6px',cursor:'pointer',color:'#fff'}}
+          >
+            ← Back to Home
+          </button>
+          <button 
+            onClick={() => router.push('/map')}
+            style={{padding:'8px 16px',background:'#1a1a1a',border:'1px solid #333',borderRadius:'6px',cursor:'pointer',color:'#fff'}}
+          >
+            View Map
+          </button>
+        </div>
       </div>
 
       {/* Messages */}

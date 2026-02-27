@@ -4,6 +4,7 @@ import { eq, and } from 'drizzle-orm';
 
 interface SessionData {
   destination: string;
+  destinationImage?: string;
   days?: number;
   startDate?: Date;
   endDate?: Date;
@@ -15,6 +16,7 @@ export async function createSession(userId: string, data: SessionData) {
   const [session] = await db.insert(planningSessions).values({
     userId,
     destination: data.destination,
+    destinationImage: data.destinationImage,
     days: data.days,
     startDate: data.startDate,
     endDate: data.endDate,
@@ -54,7 +56,7 @@ export async function getUserActiveSession(userId: string) {
   return session;
 }
 
-export async function updateSession(sessionId: string, updates: Partial<SessionData> & { status?: string; title?: string }) {
+export async function updateSession(sessionId: string, updates: Partial<SessionData> & { status?: string; title?: string; destinationImage?: string }) {
   const [updated] = await db
     .update(planningSessions)
     .set({
@@ -147,4 +149,14 @@ export async function finalizeSession(sessionId: string, itinerary?: any) {
     .returning();
 
   return updated;
+}
+
+export async function getUserAllSessions(userId: string) {
+  const sessions = await db
+    .select()
+    .from(planningSessions)
+    .where(eq(planningSessions.userId, userId))
+    .orderBy(planningSessions.updatedAt);
+
+  return sessions;
 }

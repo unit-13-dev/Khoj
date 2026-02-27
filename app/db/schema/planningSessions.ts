@@ -7,6 +7,7 @@ export const planningSessions = pgTable('planning_sessions', {
   userId: text('user_id').references(() => user.userId, { onDelete: 'cascade' }).notNull(),
   title: text('title').default('Trip Planning'),
   destination: text('destination').notNull(),
+  destinationImage: text('destination_image'),
   startDate: timestamp('start_date'),
   endDate: timestamp('end_date'),
   days: integer('days'),

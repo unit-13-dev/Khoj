@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
-import { getSession } from '@/app/lib/discovery/sessionManager';
+import { getSession, createSession } from '@/app/lib/discovery/sessionManager';
 
 export async function GET(req: NextRequest) {
   try {
@@ -45,6 +45,35 @@ export async function GET(req: NextRequest) {
     console.error('Session fetch error:', error);
     return NextResponse.json(
       { error: 'Failed to fetch session' },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const body = await req.json();
+    const { destination = 'New Trip', interests = [] } = body;
+
+    const session = await createSession(userId, {
+      destination,
+      interests
+    });
+
+    return NextResponse.json({
+      sessionId: session.id,
+      success: true
+    });
+
+  } catch (error) {
+    console.error('Session creation error:', error);
+    return NextResponse.json(
+      { error: 'Failed to create session' },
       { status: 500 }
     );
   }

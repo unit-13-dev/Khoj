@@ -127,6 +127,20 @@
       "when": 1771846271664,
       "tag": "0017_add_finalized_itinerary",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1771852056761,
+      "tag": "0018_fearless_wendell_rand",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1772187086444,
+      "tag": "0019_wooden_major_mapleleaf",
+      "breakpoints": true
     }
   ]
 }

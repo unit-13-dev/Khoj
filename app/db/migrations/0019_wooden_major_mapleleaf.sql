@@ -1,0 +1,1 @@
+ALTER TABLE "planning_sessions" ADD COLUMN "destination_image" text;
