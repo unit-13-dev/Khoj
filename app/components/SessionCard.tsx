@@ -48,9 +48,11 @@ export default function SessionCard({ session, onClick }: SessionCardProps) {
       }
       return 'Upcoming trip - planned whenever you\'re ready';
     }
-    return session.approvedPlacesCount > 0 
-      ? `${session.approvedPlacesCount} places selected`
-      : 'Just started';
+    // Never show just "0" - always show descriptive text
+    if (session.approvedPlacesCount > 0) {
+      return `${session.approvedPlacesCount} ${session.approvedPlacesCount === 1 ? 'place' : 'places'} selected`;
+    }
+    return 'Just started';
   };
 
   // Use destination image or preview image
@@ -128,11 +130,6 @@ export default function SessionCard({ session, onClick }: SessionCardProps) {
           <div style={{ fontSize: '24px', fontWeight: 'bold', color: '#fff', marginBottom: '4px' }}>
             {session.destination}
           </div>
-          {isFinalized && session.itemsCount > 0 && (
-            <div style={{ fontSize: '14px', color: '#fff', opacity: 0.9 }}>
-              {session.itemsCount} stops planned
-            </div>
-          )}
         </div>
       </div>
 

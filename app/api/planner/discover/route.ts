@@ -117,6 +117,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: true });
     }
 
+    if (action === 'remove') {
+      if (!sessionId || !placeId) {
+        return NextResponse.json({ error: 'Session ID and Place ID required' }, { status: 400 });
+      }
+
+      // Import removePlace function
+      const { removePlace } = await import('@/app/lib/discovery/sessionManager');
+      await removePlace(sessionId, placeId);
+
+      return NextResponse.json({ success: true });
+    }
+
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 });
 
   } catch (error) {

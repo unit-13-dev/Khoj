@@ -31,7 +31,6 @@ export default function PlannerPage() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(sessionIdFromUrl);
-  const [suggestedPlaces, setSuggestedPlaces] = useState<Place[]>([]);
   const [approvedPlaces, setApprovedPlaces] = useState<Place[]>([]);
   const [sessionTitle, setSessionTitle] = useState('Trip Planning');
   const [finalItinerary, setFinalItinerary] = useState<any>(null);
@@ -212,11 +211,6 @@ export default function PlannerPage() {
         console.log('Session title updated:', response.data.sessionTitle);
       }
 
-      if (response.data.places) {
-        setSuggestedPlaces(response.data.places);
-        console.log('Suggested places set:', response.data.places.length, 'places');
-      }
-
       // Handle finalization
       if (response.data.finalized) {
         console.log('=== FRONTEND: Finalization triggered ===');
@@ -358,58 +352,12 @@ export default function PlannerPage() {
         </div>
       </div>
 
-      {/* Messages */}
-      <div style={{flex:1,overflowY:'auto',padding:'24px'}}>
-        <div style={{maxWidth:'800px',margin:'0 auto'}}>
-          {/* Approved Places Carousel */}
-          {approvedPlaces.length > 0 && (
-            <div style={{marginBottom:'24px',padding:'16px',background:'#1a1a1a',border:'1px solid #333',borderRadius:'12px'}}>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}>
-                <div style={{fontSize:'16px',fontWeight:'bold'}}>Your Itinerary ({approvedPlaces.length} places)</div>
-                {approvedPlaces.length >= 3 && (
-                  <button
-                    onClick={handleFinalizeItinerary}
-                    style={{
-                      padding:'8px 16px',
-                      background:'#fff',
-                      color:'#000',
-                      border:'none',
-                      borderRadius:'6px',
-                      cursor:'pointer',
-                      fontSize:'13px',
-                      fontWeight:'bold'
-                    }}
-                  >
-                    Finalize Itinerary
-                  </button>
-                )}
-              </div>
-              <div style={{display:'flex',gap:'12px',overflowX:'auto',paddingBottom:'8px'}}>
-                {approvedPlaces.map((place) => (
-                  <div key={place.placeId} style={{
-                    minWidth:'200px',
-                    padding:'12px',
-                    background:'#0a0a0a',
-                    border:'1px solid #444',
-                    borderRadius:'8px'
-                  }}>
-                    <div style={{fontSize:'14px',fontWeight:'bold',marginBottom:'4px',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>
-                      {place.name}
-                    </div>
-                    <div style={{fontSize:'12px',color:'#888',marginBottom:'4px'}}>{place.type}</div>
-                    {place.rating > 0 && (
-                      <div style={{fontSize:'11px',color:'#ffa500'}}>⭐ {place.rating.toFixed(1)}</div>
-                    )}
-                    {place.source === 'instagram' && (
-                      <div style={{fontSize:'10px',color:'#e1306c',marginTop:'4px'}}>📸 From your saves</div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {messages.map((msg, idx) => {
+      {/* Main Content Area - Split into Chat and Sidebar */}
+      <div style={{flex:1,display:'flex',overflow:'hidden'}}>
+        {/* Chat Area (Left) */}
+        <div style={{flex:1,overflowY:'auto',padding:'24px'}}>
+          <div style={{maxWidth:'800px',margin:'0 auto'}}>
+            {messages.map((msg, idx) => {
             console.log(`=== RENDERING message ${idx} ===`);
             console.log('Message role:', msg.role);
             console.log('Message has places?', !!msg.places);
@@ -809,6 +757,148 @@ export default function PlannerPage() {
           )}
           
           <div ref={messagesEndRef} />
+          </div>
+        </div>
+
+        {/* Approved Places Sidebar (Right) */}
+        <div style={{
+          width:'320px',
+          borderLeft:'1px solid #333',
+          background:'#0a0a0a',
+          overflowY:'auto',
+          display:'flex',
+          flexDirection:'column'
+        }}>
+          {/* Sidebar Header */}
+          <div style={{padding:'20px',borderBottom:'1px solid #333',position:'sticky',top:0,background:'#0a0a0a',zIndex:10}}>
+            <div style={{fontSize:'18px',fontWeight:'bold',marginBottom:'8px'}}>
+              Your Itinerary
+            </div>
+            <div style={{fontSize:'14px',color:'#888',marginBottom:'12px'}}>
+              {approvedPlaces.length} {approvedPlaces.length === 1 ? 'place' : 'places'} selected
+            </div>
+            {approvedPlaces.length >= 3 && (
+              <button
+                onClick={handleFinalizeItinerary}
+                style={{
+                  width:'100%',
+                  padding:'10px',
+                  background:'#fb923c',
+                  color:'#000',
+                  border:'none',
+                  borderRadius:'8px',
+                  cursor:'pointer',
+                  fontSize:'14px',
+                  fontWeight:'bold'
+                }}
+              >
+                ✓ Finalize Itinerary
+              </button>
+            )}
+          </div>
+
+          {/* Approved Places List */}
+          <div style={{flex:1,padding:'16px'}}>
+            {approvedPlaces.length === 0 ? (
+              <div style={{textAlign:'center',padding:'40px 20px',color:'#666'}}>
+                <div style={{fontSize:'48px',marginBottom:'16px'}}>📍</div>
+                <div style={{fontSize:'14px',lineHeight:'1.6'}}>
+                  No places added yet.<br/>
+                  Keep places from suggestions to build your itinerary.
+                </div>
+              </div>
+            ) : (
+              <div style={{display:'flex',flexDirection:'column',gap:'12px'}}>
+                {approvedPlaces.map((place, index) => (
+                  <div key={place.placeId} style={{
+                    background:'#1a1a1a',
+                    border:'1px solid #333',
+                    borderRadius:'10px',
+                    overflow:'hidden',
+                    transition:'border-color 0.2s'
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.borderColor = '#fb923c'}
+                  onMouseLeave={(e) => e.currentTarget.style.borderColor = '#333'}
+                  >
+                    {/* Place Number Badge */}
+                    <div style={{
+                      padding:'8px 12px',
+                      background:'#fb923c',
+                      color:'#000',
+                      fontSize:'12px',
+                      fontWeight:'bold'
+                    }}>
+                      #{index + 1}
+                    </div>
+                    
+                    <div style={{padding:'12px'}}>
+                      <div style={{fontSize:'14px',fontWeight:'bold',marginBottom:'6px',color:'#fff'}}>
+                        {place.name}
+                      </div>
+                      <div style={{fontSize:'12px',color:'#888',marginBottom:'8px',textTransform:'capitalize'}}>
+                        {place.type.replace(/_/g, ' ')}
+                      </div>
+                      {place.rating > 0 && (
+                        <div style={{fontSize:'12px',color:'#ffa500',marginBottom:'8px'}}>
+                          ⭐ {place.rating.toFixed(1)}
+                        </div>
+                      )}
+                      {place.source === 'instagram' && (
+                        <div style={{fontSize:'11px',color:'#e1306c',marginBottom:'8px'}}>
+                          📸 From your saves
+                        </div>
+                      )}
+                      
+                      {/* Remove Button */}
+                      <button
+                        onClick={async () => {
+                          if (!sessionId) return;
+                          try {
+                            // Call API to remove from approved places
+                            await axios.post('/api/planner/discover', {
+                              action: 'remove',
+                              sessionId,
+                              placeId: place.placeId
+                            });
+                            
+                            // Update local state
+                            setApprovedPlaces(prev => prev.filter(p => p.placeId !== place.placeId));
+                            
+                            // Update messages to unmark this place
+                            setMessages(prev => prev.map(msg => {
+                              if (msg.places) {
+                                return {
+                                  ...msg,
+                                  places: msg.places.map(p => 
+                                    p.placeId === place.placeId ? { ...p, isApproved: false } : p
+                                  )
+                                };
+                              }
+                              return msg;
+                            }));
+                          } catch (error) {
+                            console.error('Failed to remove place:', error);
+                          }
+                        }}
+                        style={{
+                          width:'100%',
+                          padding:'6px',
+                          background:'#333',
+                          color:'#fff',
+                          border:'1px solid #555',
+                          borderRadius:'6px',
+                          cursor:'pointer',
+                          fontSize:'12px'
+                        }}
+                      >
+                        ✗ Remove
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

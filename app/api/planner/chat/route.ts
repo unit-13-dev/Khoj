@@ -14,9 +14,16 @@ import {
   finalizeSession
 } from '@/app/lib/discovery/sessionManager';
 
-const SYSTEM_PROMPT = `You are an expert AI trip planner. Your role is to help users plan perfect multi-day trips.
+const SYSTEM_PROMPT = `You are an expert AI trip planner with agentic capabilities. Your role is to understand user intent and help plan perfect trips.
 
 IMPORTANT: When suggesting places, ALWAYS prioritize places the user has saved from Instagram. These are marked with source: "instagram" and should be mentioned first as "places you've saved" or "from your Instagram saves".
+
+YOUR AGENTIC ROLE:
+You are the intelligent layer that decides what the system should do based on user messages. You understand context, intent, and can make smart decisions about:
+- What destination the user is talking about (even if they don't say "I'm going to...")
+- What types of places they want to see
+- When to show place suggestions vs when to finalize
+- How to maintain conversation context across messages
 
 PLACE DISCOVERY RULES:
 - When a user tells you about their trip (destination, duration, interests), the system will discover and show place cards
@@ -50,273 +57,196 @@ Be conversational, friendly, and helpful. Extract key information:
 
 ONLY mention places being shown above when the system is actually showing them.`;
 
-function extractTripInfo(messages: any[], currentSession: any) {
+function parseRelativeDate(content: string): { startDate?: Date; endDate?: Date; days?: number } {
+  const lowerContent = content.toLowerCase();
+  const now = new Date();
+  
+  // Helper to get next occurrence of a day of week
+  const getNextDayOfWeek = (dayOfWeek: number): Date => {
+    const result = new Date(now);
+    result.setDate(now.getDate() + ((dayOfWeek + 7 - now.getDay()) % 7 || 7));
+    result.setHours(0, 0, 0, 0);
+    return result;
+  };
+  
+  // Parse "next Saturday", "this Saturday", etc.
+  const dayNames: Record<string, number> = {
+    sunday: 0, monday: 1, tuesday: 2, wednesday: 3,
+    thursday: 4, friday: 5, saturday: 6
+  };
+  
+  for (const [dayName, dayNum] of Object.entries(dayNames)) {
+    if (lowerContent.includes(`next ${dayName}`) || lowerContent.includes(`this ${dayName}`)) {
+      const startDate = getNextDayOfWeek(dayNum);
+      
+      // Check if it's a single day trip (mentions "from X to Y" on same day)
+      if (lowerContent.includes('from') && lowerContent.includes('in the morning') && lowerContent.includes('in the evening')) {
+        return {
+          startDate,
+          endDate: new Date(startDate), // Same day
+          days: 1
+        };
+      }
+      
+      return {
+        startDate,
+        endDate: new Date(startDate), // Default to same day
+        days: 1
+      };
+    }
+  }
+  
+  // Parse "tomorrow"
+  if (lowerContent.includes('tomorrow')) {
+    const tomorrow = new Date(now);
+    tomorrow.setDate(now.getDate() + 1);
+    tomorrow.setHours(0, 0, 0, 0);
+    return {
+      startDate: tomorrow,
+      endDate: tomorrow,
+      days: 1
+    };
+  }
+  
+  // Parse "next week", "next weekend"
+  if (lowerContent.includes('next weekend')) {
+    const nextSaturday = getNextDayOfWeek(6);
+    const nextSunday = new Date(nextSaturday);
+    nextSunday.setDate(nextSaturday.getDate() + 1);
+    return {
+      startDate: nextSaturday,
+      endDate: nextSunday,
+      days: 2
+    };
+  }
+  
+  return {};
+}
+
+async function extractTripInfoWithLLM(messages: any[], currentSession: any) {
   const lastUserMessage = messages.filter(m => m.role === 'user').pop();
   if (!lastUserMessage) return null;
 
-  const content = lastUserMessage.content.toLowerCase();
+  const content = lastUserMessage.content;
   
-  console.log('=== Extracting from message ===');
-  console.log('Content:', content);
+  console.log('=== Using LLM to extract trip info ===');
+  console.log('User message:', content);
   console.log('Current session destination:', currentSession?.destination);
   
-  // Extract multiple locations from the message
-  const locations: string[] = [];
-  let destination = null;
-  let specificPlace = null;
-  
-  // Common stop words to exclude
-  const stopWords = ['the', 'for', 'and', 'with', 'from', 'april', 'weekend', 'first', 'day', 'rest', 'most', 'best', 'all', 'well', 'just', 'but', 'want', 'taste', 'visit'];
-  
-  // Pattern 1: "in [CITY]" - captures city names (word boundary before next preposition/punctuation)
-  const inPattern = content.match(/\bin\s+([a-z]+(?:\s+[a-z]+)?)\s+(?:from|on|over|for|,|!|\.|$)/gi);
-  if (inPattern) {
-    inPattern.forEach((match: string) => {
-      const place = match.replace(/\bin\s+/i, '').replace(/\s+(?:from|on|over|for|,|!|\.|$).*$/i, '').trim();
-      if (place && place.length > 2 && !stopWords.includes(place.toLowerCase())) {
-        locations.push(place);
-        console.log('Pattern "in X" matched:', place);
-      }
+  // Use LLM as agentic layer to understand user intent
+  const extractionPrompt = `You are an intelligent trip planning assistant. Analyze the user's message and extract trip information.
+
+Current context:
+- Current destination in session: ${currentSession?.destination || 'None'}
+- User message: "${content}"
+
+Extract the following information and return as JSON:
+{
+  "destination": "The city/place the user wants to visit (e.g., 'Jama Masjid, Delhi', 'Chandni Chowk, Delhi', 'Varanasi'). If user mentions a new place, use that. If refining existing destination, update it. Return null if unclear.",
+  "interests": ["Array of interest keywords like 'food', 'temple', 'restaurant', 'tourist_attraction', 'ghat', etc."],
+  "priorityPlaceTypes": ["Array of specific place types user wants RIGHT NOW like 'restaurant', 'temple', 'ghat', 'fort', 'market'. These get highest relevance boost."],
+  "days": number or null,
+  "shouldDiscoverPlaces": true/false (true if user wants place suggestions, false if they're finalizing or just chatting),
+  "shouldFinalize": true/false (true if user says finalize, done, create itinerary)
+}
+
+Examples:
+1. "I am visiting Jama Masjid next Saturday from 8am to 5pm. Please suggest places to eat at and visit"
+   → {"destination": "Jama Masjid, Delhi", "interests": ["food", "restaurant", "tourist_attraction"], "priorityPlaceTypes": ["restaurant", "food"], "days": null, "shouldDiscoverPlaces": true, "shouldFinalize": false}
+
+2. "Would like to visit Chandni Chowk"
+   → {"destination": "Chandni Chowk, Delhi", "interests": ["tourist_attraction"], "priorityPlaceTypes": [], "days": null, "shouldDiscoverPlaces": true, "shouldFinalize": false}
+
+3. "Tell me about temples in Varanasi"
+   → {"destination": "Varanasi", "interests": ["temple", "place_of_worship"], "priorityPlaceTypes": ["temple", "place_of_worship"], "days": null, "shouldDiscoverPlaces": true, "shouldFinalize": false}
+
+4. "Looks amazing! Finalize the itinerary"
+   → {"destination": null, "interests": [], "priorityPlaceTypes": [], "days": null, "shouldDiscoverPlaces": false, "shouldFinalize": true}
+
+5. "Show me street food places"
+   → {"destination": null, "interests": ["food", "restaurant"], "priorityPlaceTypes": ["restaurant", "street_food"], "days": null, "shouldDiscoverPlaces": true, "shouldFinalize": false}
+
+Return ONLY valid JSON, nothing else.`;
+
+  try {
+    const extractionResponse = await generateText({
+      model: openrouter('anthropic/claude-3.5-sonnet'),
+      messages: [{ role: 'user', content: extractionPrompt }],
+      temperature: 0.3
     });
-  }
-  
-  // Pattern 2: "visit/go to X" - captures specific places (only proper nouns, not verbs)
-  // BUT exclude if it's just a place type (temple, ghat, etc.) without a city context
-  const visitPattern = content.match(/(?:visit|visiting)\s+(?:the\s+)?([a-z]+(?:\s+[a-z]+){0,3}?)(?:\s+(?:temple|ghat|masjid|palace|fort|museum|market|bazaar|chowk))?(?:\s+(?:but|and|as|,|!|\.))/gi);
-  if (visitPattern) {
-    visitPattern.forEach((match: string) => {
-      const place = match.replace(/(?:visit|visiting)\s+(?:the\s+)?/i, '').replace(/\s+(?:but|and|as|,|!|\.).*$/i, '').trim();
-      
-      // Skip if it's a generic place type without city context (e.g., "nearest temple", "the ghats")
-      const isGenericPlace = /^(nearest|the|a|an)\s+/i.test(place) || 
-                            /\b(temple|ghat|masjid|palace|fort|museum|market|bazaar|chowk)s?$/i.test(place);
-      
-      if (place && place.length > 2 && !stopWords.includes(place.toLowerCase()) && !locations.includes(place) && !isGenericPlace) {
-        locations.push(place);
-        console.log('Pattern "visit X" matched:', place);
-      } else if (isGenericPlace) {
-        console.log('Skipping generic place reference:', place);
-      }
-    });
-  }
-  
-  // Pattern 3: "at [PLACE]" or "near [PLACE]" - captures locations
-  const atPattern = content.match(/\b(?:at|near)\s+([a-z]+(?:\s+[a-z]+)?)\s+(?:temple|ghat|masjid|palace|fort|but|and|,|!|\.)/gi);
-  if (atPattern) {
-    atPattern.forEach((match: string) => {
-      const place = match.replace(/\b(?:at|near)\s+/i, '').replace(/\s+(?:temple|ghat|masjid|palace|fort|but|and|,|!|\.).*$/i, '').trim();
-      if (place && place.length > 2 && !stopWords.includes(place.toLowerCase()) && !locations.includes(place)) {
-        locations.push(place);
-        console.log('Pattern "at/near X" matched:', place);
-      }
-    });
-  }
-  
-  // Use extracted location or fall back to session destination
-  destination = locations[0] || currentSession?.destination || null;
-  specificPlace = locations[0] || null;
-  
-  // If session destination is still "New Trip", ignore it and require explicit location
-  if (destination === 'New Trip') {
-    destination = locations[0] || null;
-  }
-  
-  // If user is refining (mentions specific places/preferences but no new city), use session destination
-  // BUT only if session has a real destination (not "New Trip")
-  const isRefining = !locations.length && 
-                     currentSession?.destination && 
-                     currentSession.destination !== 'New Trip' &&
-                     (
-                       content.includes('stay') || 
-                       content.includes('near') || 
-                       content.includes('want') ||
-                       content.includes('looking for') ||
-                       content.includes('prefer') ||
-                       content.includes('authentic') ||
-                       content.includes('good place') ||
-                       content.includes('also') ||
-                       content.includes('as well') ||
-                       content.includes('too')
-                     );
-  
-  if (isRefining) {
-    destination = currentSession.destination;
-    console.log('User is refining, using session destination:', destination);
-  }
-  
-  const daysMatch = content.match(/(\d+)\s*days?/i);
-  const days = daysMatch ? parseInt(daysMatch[1]) : undefined;
-  
-  // Extract dates - look for patterns like "16 april to 19 april" or "april 16-19"
-  let startDate: Date | undefined = undefined;
-  let endDate: Date | undefined = undefined;
-  let calculatedDays: number | undefined = undefined;
-  
-  // Pattern: "16 april to 19 april" or "april 16 to april 19"
-  const dateRangePattern = /(\d{1,2})\s+(january|february|march|april|may|june|july|august|september|october|november|december)\s+(?:to|until|-)\s+(\d{1,2})\s+(january|february|march|april|may|june|july|august|september|october|november|december)/i;
-  const dateRangeMatch = content.match(dateRangePattern);
-  
-  if (dateRangeMatch) {
-    const [, startDay, startMonth, endDay, endMonth] = dateRangeMatch;
-    const currentYear = new Date().getFullYear();
-    const nextYear = currentYear + 1;
+
+    const extracted = JSON.parse(extractionResponse.text.trim());
+    console.log('LLM extracted:', extracted);
     
-    // Parse months
-    const months: Record<string, number> = {
-      january: 0, february: 1, march: 2, april: 3, may: 4, june: 5,
-      july: 6, august: 7, september: 8, october: 9, november: 10, december: 11
-    };
-    
-    const startMonthNum = months[startMonth.toLowerCase()];
-    const endMonthNum = months[endMonth.toLowerCase()];
-    
-    // Determine year (if month has passed this year, use next year)
-    const now = new Date();
-    const startYear = startMonthNum < now.getMonth() ? nextYear : currentYear;
-    const endYear = endMonthNum < now.getMonth() ? nextYear : currentYear;
-    
-    startDate = new Date(startYear, startMonthNum, parseInt(startDay));
-    endDate = new Date(endYear, endMonthNum, parseInt(endDay));
-    
-    // Calculate days if not explicitly mentioned
-    if (startDate && endDate) {
-      const diffTime = Math.abs(endDate.getTime() - startDate.getTime());
-      calculatedDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1; // +1 to include both start and end day
-      console.log('Calculated days from dates:', calculatedDays);
+    // If destination is null, use current session destination
+    if (!extracted.destination && currentSession?.destination && currentSession.destination !== 'New Trip') {
+      extracted.destination = currentSession.destination;
+      console.log('Using session destination:', extracted.destination);
     }
     
-    console.log('Extracted dates:', { startDate, endDate, calculatedDays });
+    // First try to parse relative dates (next Saturday, tomorrow, etc.)
+    let startDate: Date | undefined = undefined;
+    let endDate: Date | undefined = undefined;
+    let calculatedDays: number | undefined = undefined;
+    
+    const relativeDates = parseRelativeDate(content);
+    if (relativeDates.startDate) {
+      startDate = relativeDates.startDate;
+      endDate = relativeDates.endDate;
+      calculatedDays = relativeDates.days;
+      console.log('Parsed relative date:', { startDate, endDate, calculatedDays });
+    }
+    
+    // If no relative dates found, try absolute date patterns
+    if (!startDate) {
+      const dateRangePattern = /(\d{1,2})\s+(january|february|march|april|may|june|july|august|september|october|november|december)\s+(?:to|until|-)\s+(\d{1,2})\s+(january|february|march|april|may|june|july|august|september|october|november|december)/i;
+      const dateRangeMatch = content.toLowerCase().match(dateRangePattern);
+      
+      if (dateRangeMatch) {
+        const [, startDay, startMonth, endDay, endMonth] = dateRangeMatch;
+        const currentYear = new Date().getFullYear();
+        const nextYear = currentYear + 1;
+        
+        const months: Record<string, number> = {
+          january: 0, february: 1, march: 2, april: 3, may: 4, june: 5,
+          july: 6, august: 7, september: 8, october: 9, november: 10, december: 11
+        };
+        
+        const startMonthNum = months[startMonth.toLowerCase()];
+        const endMonthNum = months[endMonth.toLowerCase()];
+        
+        const now = new Date();
+        const startYear = startMonthNum < now.getMonth() ? nextYear : currentYear;
+        const endYear = endMonthNum < now.getMonth() ? nextYear : currentYear;
+        
+        startDate = new Date(startYear, startMonthNum, parseInt(startDay));
+        endDate = new Date(endYear, endMonthNum, parseInt(endDay));
+        
+        if (startDate && endDate) {
+          const diffTime = Math.abs(endDate.getTime() - startDate.getTime());
+          calculatedDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1;
+        }
+        
+        console.log('Parsed absolute date:', { startDate, endDate, calculatedDays });
+      }
+    }
+    
+    return {
+      destination: extracted.destination,
+      city: extracted.destination,
+      interests: extracted.interests || [],
+      priorityPlaceTypes: extracted.priorityPlaceTypes || [],
+      days: extracted.days || calculatedDays,
+      startDate,
+      endDate,
+      shouldDiscoverPlaces: extracted.shouldDiscoverPlaces,
+      shouldFinalize: extracted.shouldFinalize
+    };
+  } catch (error) {
+    console.error('LLM extraction failed:', error);
+    // Fallback to basic extraction
+    return null;
   }
-  
-  const interests: string[] = [];
-  
-  // Food & Dining
-  if (content.includes('food') || content.includes('cuisine') || content.includes('restaurant') || 
-      content.includes('eat') || content.includes('thali') || content.includes('daal') || 
-      content.includes('churma') || content.includes('dining')) {
-    interests.push('food', 'restaurant');
-  }
-  
-  // Culture & Heritage
-  if (content.includes('culture') || content.includes('heritage') || content.includes('history') || 
-      content.includes('authentic')) {
-    interests.push('culture', 'museum');
-  }
-  
-  // Nature & Parks
-  if (content.includes('nature') || content.includes('park') || content.includes('wildlife')) {
-    interests.push('nature', 'park');
-  }
-  
-  // Adventure
-  if (content.includes('adventure') || content.includes('trek') || content.includes('hiking')) {
-    interests.push('adventure', 'tourist_attraction');
-  }
-  
-  // Religious Places
-  if (content.includes('temple') || content.includes('church') || content.includes('mosque') || 
-      content.includes('masjid') || content.includes('religious') || content.includes('mandir')) {
-    interests.push('place_of_worship');
-  }
-  
-  // Shopping
-  if (content.includes('shopping') || content.includes('market') || content.includes('bazaar') || 
-      content.includes('chowk')) {
-    interests.push('shopping_mall', 'store');
-  }
-  
-  // Historical Sites
-  if (content.includes('palace') || content.includes('fort') || content.includes('monument')) {
-    interests.push('tourist_attraction', 'museum');
-  }
-  
-  // Water Bodies
-  if (content.includes('lake') || content.includes('river') || content.includes('water')) {
-    interests.push('tourist_attraction', 'park');
-  }
-  
-  // Ghats (specific to Indian cities)
-  if (content.includes('ghat') || content.includes('ghats')) {
-    interests.push('tourist_attraction', 'ghat');
-  }
-  
-  // Catch-all
-  if (content.includes('everything') || content.includes('all') || content.includes('anything')) {
-    interests.push('tourist_attraction', 'restaurant', 'museum');
-  }
-  
-  // Detect explicit place type mentions for PRIORITY BOOSTING
-  // These are what the user wants RIGHT NOW in this message
-  const priorityPlaceTypes: string[] = [];
-  
-  // Ghats - highest priority for spiritual/cultural cities
-  if (content.includes('ghat') || content.includes('ghats')) {
-    priorityPlaceTypes.push('ghat');
-    console.log('🎯 User explicitly wants: GHATS');
-  }
-  
-  // Temples
-  if (content.includes('temple') || content.includes('mandir')) {
-    priorityPlaceTypes.push('temple', 'place_of_worship');
-    console.log('🎯 User explicitly wants: TEMPLES');
-  }
-  
-  // Food places - check for strong food indicators
-  if (content.includes('street food') || content.includes('famous food') || 
-      content.includes('best food') || content.includes('food places') ||
-      content.includes('restaurants') || content.includes('where to eat')) {
-    priorityPlaceTypes.push('restaurant', 'food');
-    console.log('🎯 User explicitly wants: FOOD/RESTAURANTS');
-  }
-  
-  // Forts & Palaces
-  if (content.includes('fort') || content.includes('palace')) {
-    priorityPlaceTypes.push('fort', 'palace');
-    console.log('🎯 User explicitly wants: FORTS/PALACES');
-  }
-  
-  // Museums
-  if (content.includes('museum')) {
-    priorityPlaceTypes.push('museum');
-    console.log('🎯 User explicitly wants: MUSEUMS');
-  }
-  
-  // Markets
-  if (content.includes('market') || content.includes('bazaar') || content.includes('shopping')) {
-    priorityPlaceTypes.push('market', 'shopping');
-    console.log('🎯 User explicitly wants: MARKETS/SHOPPING');
-  }
-  
-  // Default interests if nothing specific mentioned
-  if (interests.length === 0) {
-    interests.push('tourist_attraction', 'restaurant');
-  }
-  
-  console.log('Extracted interests:', interests);
-  console.log('Priority place types:', priorityPlaceTypes);
-
-  console.log('=== Extraction result ===');
-  console.log('All locations:', locations);
-  console.log('Primary destination:', destination);
-  console.log('Specific place:', specificPlace);
-  console.log('Is refining?:', isRefining);
-  console.log('Days:', days);
-  console.log('Start date:', startDate);
-  console.log('End date:', endDate);
-  console.log('Interests:', interests);
-  console.log('Priority place types:', priorityPlaceTypes);
-
-  return { 
-    destination, 
-    specificPlace,
-    allLocations: locations.length > 0 ? locations : (destination ? [destination] : []),
-    city: destination,
-    days: days || calculatedDays, 
-    startDate,
-    endDate,
-    interests,
-    priorityPlaceTypes
-  };
 }
 
 export async function POST(req: NextRequest) {
@@ -336,46 +266,38 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'No messages provided' }, { status: 400 });
     }
 
+    const lastUserMessage = messages[messages.length - 1];
     console.log('Messages count:', messages.length);
-    console.log('Last message:', messages[messages.length - 1]);
+    console.log('Last message:', lastUserMessage);
 
     let currentSession = sessionId ? await getSession(sessionId) : await getUserActiveSession(userId);
     console.log('Current session:', currentSession?.id);
 
-    const tripInfo = extractTripInfo(messages, currentSession);
-    console.log('=== BACKEND: Extracted trip info ===');
+    // Use LLM as agentic layer to extract trip info and decide what to do
+    const tripInfo = await extractTripInfoWithLLM(messages, currentSession);
+    console.log('=== BACKEND: LLM extracted trip info ===');
     if (tripInfo) {
       console.log('Destination:', tripInfo.destination);
       console.log('Interests:', tripInfo.interests);
       console.log('Priority types:', tripInfo.priorityPlaceTypes);
       console.log('Days:', tripInfo.days);
+      console.log('Start date:', tripInfo.startDate);
+      console.log('End date:', tripInfo.endDate);
+      console.log('Should discover places:', tripInfo.shouldDiscoverPlaces);
+      console.log('Should finalize:', tripInfo.shouldFinalize);
     } else {
       console.log('No trip info extracted');
     }
 
-    let discoveredPlaces = null;
+    let discoveredPlaces: any[] | null = null;
 
-    // Check if user wants to finalize - if so, skip place discovery
-    const userMessage = messages[messages.length - 1]?.content?.toLowerCase() || '';
-    const shouldFinalize = userMessage.includes('finalize') || 
-                          userMessage.includes('done') || 
-                          userMessage.includes('that\'s all') ||
-                          userMessage.includes('create itinerary') ||
-                          userMessage.includes('finish planning');
+    // LLM decides whether to discover places or finalize
+    const shouldDiscoverPlaces = tripInfo?.shouldDiscoverPlaces || false;
+    const shouldFinalize = tripInfo?.shouldFinalize || false;
     
-    // Intelligent decision: Should we discover places for this message?
-    const shouldDiscoverPlaces = tripInfo && 
-                                 tripInfo.destination && 
-                                 !shouldFinalize && // Don't discover when finalizing
-                                 !userMessage.includes('looks amazing') && // Don't discover for approval messages
-                                 !userMessage.includes('looks good') &&
-                                 !userMessage.includes('perfect') &&
-                                 !userMessage.includes('great selection');
-    
-    console.log('=== BACKEND: Place Discovery Decision ===');
+    console.log('=== BACKEND: Place Discovery Decision (LLM-driven) ===');
     console.log('Should finalize?', shouldFinalize);
     console.log('Should discover places?', shouldDiscoverPlaces);
-    console.log('User message:', userMessage);
 
     // Create or update session if we have trip info (regardless of whether we're discovering places)
     if (tripInfo && tripInfo.destination) {
@@ -402,13 +324,27 @@ export async function POST(req: NextRequest) {
         });
       } else {
         // Update session with new trip info (destination, dates, days)
-        const shouldUpdate = 
-          (currentSession.destination === 'New Trip' && tripInfo.destination !== 'New Trip') ||
-          (tripInfo.days && tripInfo.days !== currentSession.days) ||
-          (tripInfo.startDate && !currentSession.startDate) ||
-          (tripInfo.endDate && !currentSession.endDate);
+        const updates: any = {};
         
-        if (shouldUpdate) {
+        // Update destination if changed
+        if (currentSession.destination === 'New Trip' && tripInfo.destination !== 'New Trip') {
+          updates.destination = tripInfo.destination;
+        }
+        
+        // Always update days if provided
+        if (tripInfo.days && tripInfo.days !== currentSession.days) {
+          updates.days = tripInfo.days;
+        }
+        
+        // Always update dates if provided (even if session already has dates)
+        if (tripInfo.startDate) {
+          updates.startDate = tripInfo.startDate;
+        }
+        if (tripInfo.endDate) {
+          updates.endDate = tripInfo.endDate;
+        }
+        
+        if (Object.keys(updates).length > 0) {
           console.log('Updating session with new trip info');
           console.log('Current session:', { 
             destination: currentSession.destination, 
@@ -416,26 +352,7 @@ export async function POST(req: NextRequest) {
             startDate: currentSession.startDate,
             endDate: currentSession.endDate
           });
-          console.log('New trip info:', { 
-            destination: tripInfo.destination, 
-            days: tripInfo.days,
-            startDate: tripInfo.startDate,
-            endDate: tripInfo.endDate
-          });
-          
-          const updates: any = {};
-          if (currentSession.destination === 'New Trip' && tripInfo.destination !== 'New Trip') {
-            updates.destination = tripInfo.destination;
-          }
-          if (tripInfo.days) {
-            updates.days = tripInfo.days;
-          }
-          if (tripInfo.startDate) {
-            updates.startDate = tripInfo.startDate;
-          }
-          if (tripInfo.endDate) {
-            updates.endDate = tripInfo.endDate;
-          }
+          console.log('Updates to apply:', updates);
           
           await updateSession(currentSession.id, updates);
           
@@ -462,88 +379,32 @@ export async function POST(req: NextRequest) {
     if (shouldDiscoverPlaces) {
       console.log('=== BACKEND: Will discover places ===');
       console.log('Primary region:', tripInfo!.destination);
-      console.log('All locations:', tripInfo!.allLocations);
       console.log('Interests:', tripInfo!.interests);
 
       const excludePlaceIds = [
-        ...(currentSession!.rejectedPlaces || []) // Only exclude rejected places, not approved ones
+        ...(currentSession!.approvedPlaces || []), // Exclude approved places
+        ...(currentSession!.rejectedPlaces || [])  // Exclude rejected places
       ];
-      console.log('Excluded place IDs (rejected only):', excludePlaceIds);
+      console.log('Excluded place IDs (approved + rejected):', excludePlaceIds);
 
       console.log('=== BACKEND: Calling discoverPlaces ===');
       
       try {
-        // Filter out locations that are just place names within the main destination
-        // Only do multi-location search if we have multiple distinct cities/regions
-        const validLocations = tripInfo.allLocations.filter((loc: string) => {
-          // Keep the primary destination
-          if (loc === tripInfo.destination) return true;
-          
-          // Skip if it contains generic place type words (temple, ghat, etc.)
-          const hasPlaceType = /\b(temple|ghat|masjid|palace|fort|museum|market|bazaar|chowk|mandir)\b/i.test(loc);
-          if (hasPlaceType) {
-            console.log(`Skipping "${loc}" - appears to be a place name, not a city`);
-            return false;
-          }
-          
-          return true;
-        });
+        console.log('Priority place types (will boost relevance):', tripInfo?.priorityPlaceTypes);
         
-        console.log('Valid locations for search:', validLocations);
-        console.log('Priority place types (will boost relevance):', tripInfo.priorityPlaceTypes);
-        
-        if (tripInfo.priorityPlaceTypes && tripInfo.priorityPlaceTypes.length > 0) {
+        if (tripInfo?.priorityPlaceTypes && tripInfo.priorityPlaceTypes.length > 0) {
           console.log('⚡ CONTEXT-AWARE MODE: User wants', tripInfo.priorityPlaceTypes.join(', '), 'in latest message');
         }
         
-        // If multiple valid locations mentioned, search near all of them
-        if (validLocations.length > 1) {
-          console.log('Multiple locations detected, searching near all:', validLocations);
-          
-          // Search near each location and combine results
-          const allDiscoveredPlaces = [];
-          for (const location of validLocations.slice(0, 3)) { // Limit to 3 locations
-            console.log(`Searching near: ${location}`);
-            try {
-              const placesNearLocation = await discoverPlaces({
-                region: location,
-                interests: tripInfo.interests,
-                userId,
-                limit: 15,
-                excludePlaceIds,
-                priorityPlaceTypes: tripInfo.priorityPlaceTypes
-              });
-              allDiscoveredPlaces.push(...placesNearLocation);
-            } catch (locationError) {
-              console.error(`Failed to discover places near ${location}:`, locationError);
-              // Continue with other locations
-            }
-          }
-          
-          // Deduplicate and sort by relevance
-          const uniquePlaces = new Map();
-          allDiscoveredPlaces.forEach(place => {
-            if (!uniquePlaces.has(place.placeId) || place.relevanceScore > uniquePlaces.get(place.placeId).relevanceScore) {
-              uniquePlaces.set(place.placeId, place);
-            }
-          });
-          
-          discoveredPlaces = Array.from(uniquePlaces.values())
-            .sort((a, b) => b.relevanceScore - a.relevanceScore)
-            .slice(0, 30);
-          
-          console.log('Combined results from multiple locations:', discoveredPlaces.length);
-        } else {
-          // Single location search
-          discoveredPlaces = await discoverPlaces({
-            region: tripInfo.destination,
-            interests: tripInfo.interests,
-            userId,
-            limit: 30,
-            excludePlaceIds,
-            priorityPlaceTypes: tripInfo.priorityPlaceTypes
-          });
-        }
+        // Single location search
+        discoveredPlaces = await discoverPlaces({
+          region: tripInfo?.destination || '',
+          interests: tripInfo?.interests || [],
+          userId,
+          limit: 30,
+          excludePlaceIds,
+          priorityPlaceTypes: tripInfo?.priorityPlaceTypes || []
+        });
       } catch (discoveryError) {
         console.error('=== BACKEND: Discovery failed ===', discoveryError);
         // Continue without places - AI can still respond
@@ -554,7 +415,7 @@ export async function POST(req: NextRequest) {
       console.log('Discovered places count:', discoveredPlaces?.length || 0);
       if (discoveredPlaces && discoveredPlaces.length > 0) {
         console.log('First place:', discoveredPlaces[0]);
-        await saveDiscoveredPlaces(currentSession.id, discoveredPlaces);
+        await saveDiscoveredPlaces(currentSession!.id, discoveredPlaces);
         console.log('Places saved to database');
       } else {
         console.log('WARNING: No places discovered!');
@@ -616,7 +477,6 @@ export async function POST(req: NextRequest) {
         
         const titlePrompt = `Generate a short, catchy trip title (max 40 characters) based on:
 Destination: ${tripInfo.destination}
-Locations: ${tripInfo.allLocations?.join(', ') || tripInfo.destination}
 Interests: ${tripInfo.interests.join(', ')}
 Number of places: ${currentSession.approvedPlaces.length}
 
@@ -642,9 +502,9 @@ Return ONLY the title, nothing else.`;
     }
 
     if (discoveredPlaces && discoveredPlaces.length > 0) {
-      // Fetch photo URLs and ratings for ALL places using their placeId
+      // Fetch photo URLs and ratings for ALL places (not just 7)
       const placesWithPhotos = await Promise.all(
-        discoveredPlaces.slice(0, 7).map(async (p) => {
+        discoveredPlaces.map(async (p) => {
           let photoUrl = null;
           let rating = p.rating || 0;
           
