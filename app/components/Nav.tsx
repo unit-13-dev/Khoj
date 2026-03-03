@@ -30,6 +30,13 @@ export default function Nav(){
           {isSignedIn && isLoaded && (
             <>
               <Link 
+                href="/planner" 
+                className="text-foreground hover:text-muted-foreground transition-colors"
+              >
+                Trip Planner
+              </Link>
+              
+              <Link 
                 href="/map" 
                 className="text-foreground hover:text-muted-foreground transition-colors"
               >
